@@ -468,7 +468,7 @@ def health():
     c = conn.execute("SELECT COUNT(*) FROM checks").fetchone()[0]
     u = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
     conn.close()
-    return {"status": "ok", "version": "2.0.0", "users": u, "monitors": m, "checks": c}
+    return {"status": "ok", "version": "2.1.0", "users": u, "monitors": m, "checks": c}
 
 @app.post("/api/auth/reset-admin")
 async def reset_admin_password():
