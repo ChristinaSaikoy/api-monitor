@@ -500,26 +500,23 @@ import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
-SMTP_CFG = {"host": os.environ.get("SMTP_HOST","smtp.qq.com"),
-            "port": int(os.environ.get("SMTP_PORT","465")),
-            "user": os.environ.get("SMTP_USER","542637706@qq.com"),
-            "pw": os.environ.get("SMTP_PASSWORD","")}
+RESEND_KEY = os.environ.get("RESEND_API_KEY","")
 
 def send_welcome(to_email: str, plan: str, pw: str) -> bool:
-    if not SMTP_CFG["pw"]: return False
+    if not RESEND_KEY: return False
     try:
-        msg = MIMEMultipart(); msg["From"]=SMTP_CFG["user"]; msg["To"]=to_email
-        msg["Subject"]=f"Your API Monitor Account ({plan.title()} Plan)"
         url = os.environ.get("DASHBOARD_URL","https://api-monitor-production-a5f4.up.railway.app")
-        msg.attach(MIMEText(f"""<html><body style="font-family:Arial;max-width:600px">
-<h2 style="color:#38bdf8">API Monitor — Ready!</h2>
+        body = json.dumps({"from":"API Monitor <noreply@api-monitor.app>","to":[to_email],
+            "subject":f"Your API Monitor Account ({plan.title()} Plan)",
+            "html":f"""<h2 style="color:#38bdf8">API Monitor — Ready!</h2>
 <p>Your <b>{plan.title()}</b> account ({PLANS[plan]['monitors']} monitors) is active.</p>
 <table style="border-collapse:collapse;width:100%"><tr><td style="padding:8px;background:#1e293b;color:#e2e8f0;font-weight:bold">Dashboard</td><td style="padding:8px"><a href="{url}">{url}</a></td></tr>
 <tr><td style="padding:8px;background:#1e293b;color:#e2e8f0;font-weight:bold">Email</td><td style="padding:8px">{to_email}</td></tr>
 <tr><td style="padding:8px;background:#1e293b;color:#e2e8f0;font-weight:bold">Password</td><td style="padding:8px"><code>{pw}</code></td></tr></table>
-<p style="color:#94a3b8;font-size:12px">Change your password after login. Reply for support.</p></body></html>""","html"))
-        with smtplib.SMTP_SSL(SMTP_CFG["host"],SMTP_CFG["port"],timeout=15) as s:
-            s.login(SMTP_CFG["user"],SMTP_CFG["pw"]); s.sendmail(SMTP_CFG["user"],to_email,msg.as_string())
+<p style="color:#94a3b8;font-size:12px">Change your password after login. Reply for support.</p>"""}).encode()
+        req = urlreq.Request("https://api.resend.com/emails",data=body,
+            headers={"Authorization":f"Bearer {RESEND_KEY}","Content-Type":"application/json"})
+        urlreq.urlopen(req,timeout=10)
         print(f"[EMAIL] Sent to {to_email}"); return True
     except Exception as e: print(f"[EMAIL] Fail {to_email}: {e}"); return False
 
