@@ -2,205 +2,209 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>API Monitor</title>
+<title>API Monitor // v2.1</title>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Share+Tech+Mono&family=Rajdhani:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <style>
+:root{--bg:#060b14;--surface:rgba(10,20,40,0.85);--border:rgba(0,240,255,0.15);--cyan:#00f0ff;--blue:#6c5ce7;--magenta:#ff00aa;--green:#00ff88;--red:#ff3366;--yellow:#ffd700;--text:#c8d6e5;--dim:#5c7a9a}
 *{margin:0;padding:0;box-sizing:border-box}
-body{font-family:-apple-system,system-ui,sans-serif;background:#0f172a;color:#e2e8f0;min-height:100vh}
-.header{background:#1e293b;padding:10px 20px;border-bottom:1px solid #334155;display:flex;justify-content:space-between;align-items:center}
-.header h1{font-size:1.1rem;color:#38bdf8}
-.container{max-width:1024px;margin:0 auto;padding:16px}
-.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:14px}
-.stat{background:#1e293b;border-radius:8px;padding:14px;text-align:center}
-.stat .num{font-size:1.6rem;font-weight:700;color:#38bdf8}
-.stat .lbl{font-size:.75rem;color:#94a3b8}
-.card{background:#1e293b;border-radius:8px;padding:16px;margin-bottom:14px}
-.card h2{font-size:1rem;margin-bottom:10px;color:#38bdf8;border-bottom:1px solid #334155;padding-bottom:6px}
-.add-form{display:flex;gap:6px}
-.add-form input{flex:1;padding:8px 10px;background:#0f172a;border:1px solid #334155;border-radius:6px;color:#e2e8f0;font-size:.9rem}
-.add-form input:focus{border-color:#38bdf8;outline:none}
-.btn{padding:8px 14px;background:#38bdf8;color:#0f172a;border:none;border-radius:6px;font-weight:600;cursor:pointer;white-space:nowrap;font-size:.85rem}
-.btn:hover{opacity:.85}.btn-sm{padding:4px 10px;font-size:.75rem}.btn-danger{background:#ef4444;color:#fff}
-.btn-outline{background:transparent;border:1px solid #334155;color:#94a3b8}
-.status-up{color:#6ee7b7}.status-down{color:#fca5a5}.status-warn{color:#fde047}
+body{font-family:'Rajdhani',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden}
+#gridBg{position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:0;background-image:linear-gradient(rgba(0,240,255,0.03) 1px,transparent 1px),linear-gradient(90deg,rgba(0,240,255,0.03) 1px,transparent 1px);background-size:40px 40px;animation:gridMove 20s linear infinite}
+@keyframes gridMove{0%{transform:perspective(500px) rotateX(60deg) translateY(0)}100%{transform:perspective(500px) rotateX(60deg) translateY(40px)}}
+#scanlines{position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:1;background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,0.15) 2px,rgba(0,0,0,0.15) 4px)}
+.glow-orb{position:fixed;border-radius:50%;filter:blur(120px);pointer-events:none;z-index:0;opacity:0.3;animation:orbPulse 8s ease-in-out infinite}
+.glow-orb.a{top:-200px;left:10%;width:400px;height:400px;background:var(--cyan);animation-delay:0s}
+.glow-orb.b{bottom:-200px;right:10%;width:350px;height:350px;background:var(--magenta);animation-delay:4s}
+@keyframes orbPulse{0%,100%{opacity:0.2;transform:scale(1)}50%{opacity:0.4;transform:scale(1.2)}}
+
+.header{position:relative;z-index:10;display:flex;justify-content:space-between;align-items:center;padding:14px 28px;background:rgba(6,11,20,0.9);border-bottom:1px solid var(--border);backdrop-filter:blur(20px)}
+.header h1{font-family:'Orbitron',sans-serif;font-size:1.3rem;color:var(--cyan);text-shadow:0 0 20px rgba(0,240,255,0.3);letter-spacing:2px}
+.header-right{display:flex;gap:10px;align-items:center}
+#userInfo{color:var(--dim);font-size:.85rem;font-family:'Share Tech Mono',monospace}
+.btn{padding:8px 18px;border-radius:2px;font-family:'Rajdhani',sans-serif;font-weight:600;font-size:.85rem;cursor:pointer;transition:all .2s;letter-spacing:1px;text-transform:uppercase}
+.btn-primary{background:transparent;border:1px solid var(--cyan);color:var(--cyan);box-shadow:0 0 10px rgba(0,240,255,0.15)}
+.btn-primary:hover{background:rgba(0,240,255,0.1);box-shadow:0 0 20px rgba(0,240,255,0.3)}
+.btn-ghost{background:transparent;border:1px solid var(--border);color:var(--dim)}
+.btn-ghost:hover{border-color:var(--cyan);color:var(--cyan)}
+.btn-danger{background:transparent;border:1px solid var(--red);color:var(--red);font-size:.7rem;padding:3px 8px}
+.btn-danger:hover{background:rgba(255,51,102,0.1)}
+.btn-sm{padding:4px 10px;font-size:.7rem}
+
+.container{position:relative;z-index:10;max-width:1100px;margin:0 auto;padding:20px}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:20px}
+.stat-card{background:var(--surface);border:1px solid var(--border);border-radius:2px;padding:20px;text-align:center;position:relative;overflow:hidden;backdrop-filter:blur(10px)}
+.stat-card::before{content:'';position:absolute;top:0;left:0;width:100%;height:1px;background:linear-gradient(90deg,transparent,var(--cyan),transparent);opacity:0.5}
+.stat-card .num{font-family:'Orbitron',sans-serif;font-size:2rem;font-weight:700;color:var(--cyan);text-shadow:0 0 15px rgba(0,240,255,0.4)}
+.stat-card .num.warn{color:var(--yellow);text-shadow:0 0 15px rgba(255,215,0,0.4)}
+.stat-card .num.danger{color:var(--red);text-shadow:0 0 15px rgba(255,51,102,0.4)}
+.stat-card .lbl{font-size:.75rem;color:var(--dim);text-transform:uppercase;letter-spacing:2px;margin-top:4px;font-family:'Share Tech Mono',monospace}
+
+.card{background:var(--surface);border:1px solid var(--border);border-radius:2px;padding:20px;margin-bottom:16px;backdrop-filter:blur(10px);position:relative}
+.card::before{content:'';position:absolute;top:0;left:20px;right:20px;height:1px;background:linear-gradient(90deg,transparent,rgba(0,240,255,0.3),transparent)}
+.card h2{font-family:'Orbitron',sans-serif;font-size:.95rem;color:var(--cyan);margin-bottom:14px;letter-spacing:1px;display:flex;justify-content:space-between;align-items:center}
+.card h2 span{font-size:.7rem;color:var(--dim);font-family:'Share Tech Mono',monospace;letter-spacing:0}
+
+.add-form{display:flex;gap:8px}
+.add-form input{flex:1;padding:10px 14px;background:rgba(0,0,0,0.4);border:1px solid var(--border);border-radius:2px;color:var(--text);font-family:'Share Tech Mono',monospace;font-size:.85rem;outline:none;transition:border-color .2s}
+.add-form input:focus{border-color:var(--cyan);box-shadow:0 0 10px rgba(0,240,255,0.1)}
+.add-form input::placeholder{color:var(--dim)}
+
 table{width:100%;border-collapse:collapse;font-size:.85rem}
-th,td{padding:8px 10px;text-align:left;border-bottom:1px solid #334155}
-th{color:#94a3b8;font-size:.75rem}.mono{font-family:monospace;font-size:.8rem}
-tr:hover{background:#0f172a}
-.auth-box{display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7);justify-content:center;align-items:center;z-index:1000}
-.auth-card{background:#1e293b;border-radius:12px;padding:24px;width:100%;max-width:360px}
-.auth-card h2{color:#38bdf8;margin-bottom:16px}
-.auth-card input{width:100%;padding:10px;margin-bottom:10px;background:#0f172a;border:1px solid #334155;border-radius:6px;color:#e2e8f0}
-.auth-card input:focus{border-color:#38bdf8;outline:none}
-#loginError{color:#fca5a5;font-size:.8rem;display:none}
-select{background:#0f172a;border:1px solid #334155;border-radius:6px;color:#e2e8f0;padding:8px}
+th{padding:10px 12px;text-align:left;border-bottom:1px solid var(--border);color:var(--dim);font-size:.7rem;text-transform:uppercase;letter-spacing:1px;font-family:'Share Tech Mono',monospace}
+td{padding:10px 12px;border-bottom:1px solid rgba(0,240,255,0.05);font-family:'Share Tech Mono',monospace;font-size:.8rem}
+tr:hover td{background:rgba(0,240,255,0.03)}
+
+.status-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;animation:pulse 2s ease-in-out infinite}
+.status-dot.up{background:var(--green);box-shadow:0 0 8px var(--green)}
+.status-dot.down{background:var(--red);box-shadow:0 0 8px var(--red);animation:none}
+.status-dot.warn{background:var(--yellow);box-shadow:0 0 8px var(--yellow)}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.4}}
+
+.modal-overlay{display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.8);z-index:100;justify-content:center;align-items:center;backdrop-filter:blur(4px)}
+.modal{background:var(--surface);border:1px solid var(--cyan);border-radius:2px;padding:30px;width:100%;max-width:400px;box-shadow:0 0 40px rgba(0,240,255,0.1)}
+.modal h2{font-family:'Orbitron',sans-serif;color:var(--cyan);margin-bottom:20px;letter-spacing:2px;font-size:1.2rem}
+.modal input{width:100%;padding:12px;margin-bottom:12px;background:rgba(0,0,0,0.4);border:1px solid var(--border);border-radius:2px;color:var(--text);font-family:'Share Tech Mono',monospace;font-size:.85rem;outline:none}
+.modal input:focus{border-color:var(--cyan)}
+.modal .btn{width:100%;margin-top:4px}
+#loginError{color:var(--red);font-size:.8rem;margin-top:8px;display:none;font-family:'Share Tech Mono',monospace}
+
+#detailCard{display:none}
+
+select{background:rgba(0,0,0,0.4);border:1px solid var(--border);border-radius:2px;color:var(--text);padding:8px 12px;font-family:'Share Tech Mono',monospace;font-size:.8rem;outline:none}
+
+@media(max-width:768px){.stats{grid-template-columns:repeat(2,1fr)}}
 </style>
 </head>
 <body>
-<div class="header"><h1>API Monitor</h1><div style="display:flex;gap:8px;align-items:center"><span id="userInfo" style="color:#94a3b8;font-size:.8rem;margin-right:8px"></span><button class="btn btn-sm btn-outline" onclick="showLogin()" id="loginBtn">Login</button><button class="btn btn-sm btn-outline" onclick="logout()" id="logoutBtn" style="display:none">Logout</button></div></div>
-<div class="auth-box" id="authBox">
-<div class="auth-card">
-<h2>Login</h2>
-<input id="loginEmail" placeholder="Email" type="email">
-<input id="loginPass" placeholder="Password" type="password" onkeydown="if(event.key==='Enter')doLogin()">
-<div id="loginError"></div>
-<button class="btn" style="width:100%;margin-top:4px" onclick="doLogin()">Login</button>
-<button class="btn btn-outline" style="width:100%;margin-top:8px" onclick="hideLogin()">Cancel</button>
-</div></div>
+<div id="gridBg"></div>
+<div id="scanlines"></div>
+<div class="glow-orb a"></div><div class="glow-orb b"></div>
+
+<div class="header">
+<h1>// API_MONITOR</h1>
+<div class="header-right">
+<span id="userInfo">SYS::OFFLINE</span>
+<button class="btn btn-ghost btn-sm" onclick="showLogin()" id="loginBtn">AUTH</button>
+<button class="btn btn-ghost btn-sm" onclick="logout()" id="logoutBtn" style="display:none">EXIT</button>
+</div>
+</div>
+
+<div class="modal-overlay" id="authBox">
+<div class="modal">
+<h2>// AUTHENTICATE</h2>
+<input id="loginEmail" placeholder="EMAIL" type="email">
+<input id="loginPass" placeholder="PASSPHRASE" type="password" onkeydown="if(event.key==='Enter')doLogin()">
+<div id="loginError">ACCESS DENIED</div>
+<button class="btn btn-primary" onclick="doLogin()">CONNECT</button>
+<button class="btn btn-ghost" style="margin-top:6px" onclick="hideLogin()">CANCEL</button>
+</div>
+</div>
+
 <div class="container">
 <div class="stats">
-<div class="stat"><div class="num" id="monCount">-</div><div class="lbl">Monitors</div></div>
-<div class="stat"><div class="num" id="upCount">-</div><div class="lbl">Up</div></div>
-<div class="stat"><div class="num" id="downCount">-</div><div class="lbl">Down</div></div>
-<div class="stat"><div class="num" id="avgAll">-</div><div class="lbl">Avg ms</div></div>
+<div class="stat-card"><div class="num" id="monCount">--</div><div class="lbl">MONITORS</div></div>
+<div class="stat-card"><div class="num" id="upCount">--</div><div class="lbl">ONLINE</div></div>
+<div class="stat-card"><div class="num warn" id="downCount">--</div><div class="lbl">OFFLINE</div></div>
+<div class="stat-card"><div class="num" id="avgAll">--</div><div class="lbl">AVG LATENCY</div></div>
 </div>
+
 <div class="card">
-<h2>Add Monitor</h2>
+<h2>// ADD_ENDPOINT</h2>
 <div class="add-form">
-<input id="monUrl" placeholder="https://your-api.com/health">
-<input id="monName" placeholder="Name" style="max-width:150px">
-<button class="btn" onclick="addMonitor()">Add</button>
+<input id="monUrl" placeholder="https://api.target.com/health">
+<input id="monName" placeholder="CALLSIGN" style="max-width:160px">
+<button class="btn btn-primary" onclick="addMonitor()">DEPLOY</button>
 </div>
 </div>
+
 <div class="card">
-<h2>Monitors <span style="font-size:.75rem;color:#94a3b8" id="planInfo"></span></h2>
-<table><thead><tr><th>Name</th><th>URL</th><th>Status</th><th>Avg</th><th>SSL</th><th>Last</th><th></th></tr></thead>
+<h2>// ACTIVE_NODES <span id="planInfo"></span></h2>
+<table><thead><tr><th>CALLSIGN</th><th>TARGET</th><th>STATUS</th><th>LATENCY</th><th>SSL_TTL</th><th>LAST_PING</th><th></th></tr></thead>
 <tbody id="monitors"></tbody></table>
 </div>
-<div class="card" id="detailCard" style="display:none">
-<h2>History — <span id="detailName"></span></h2>
-<table><thead><tr><th>Status</th><th>ms</th><th>SSL</th><th>Error</th><th>Time</th></tr></thead>
+
+<div class="card" id="detailCard">
+<h2>// TELEMETRY :: <span id="detailName"></span></h2>
+<table><thead><tr><th>CODE</th><th>LATENCY</th><th>SSL</th><th>ERR</th><th>TIMESTAMP</th></tr></thead>
 <tbody id="checks"></tbody></table>
 </div>
+
 <div class="card" id="adminCard" style="display:none">
-<h2>Admin Panel</h2>
-<div class="add-form" style="margin-bottom:12px">
-<input id="newUserEmail" placeholder="User email" type="email">
-<select id="newUserPlan"><option value="free">Free</option><option value="pro">Pro</option><option value="unlimited">Unlimited</option></select>
-<button class="btn" onclick="adminCreateUser()">Create User</button>
+<h2>// ADMIN_CONSOLE</h2>
+<div class="add-form" style="margin-bottom:14px">
+<input id="newUserEmail" placeholder="OPERATOR_EMAIL" type="email">
+<select id="newUserPlan"><option value="free">FREE</option><option value="pro">PRO</option><option value="unlimited">UNLIMITED</option></select>
+<button class="btn btn-primary btn-sm" onclick="adminCreateUser()">CREATE</button>
 </div>
-<table><thead><tr><th>Email</th><th>Plan</th><th>Admin</th><th>Active</th><th>Last Login</th><th></th></tr></thead>
+<table><thead><tr><th>EMAIL</th><th>TIER</th><th>ROOT</th><th>ACTIVE</th><th>LAST_AUTH</th><th></th></tr></thead>
 <tbody id="adminUsers"></tbody></table>
 </div>
 </div>
+
 <script>
 var TOKEN=localStorage.getItem('apitoken')||'';
-function authHeaders(){
-  if(TOKEN) return {Authorization:'Bearer '+TOKEN,'Content-Type':'application/json'};
-  return {'Content-Type':'application/json'};
-}
+function H(){return TOKEN?{Authorization:'Bearer '+TOKEN,'Content-Type':'application/json'}:{'Content-Type':'application/json'}}
 
 async function loadStats(){
-if(!TOKEN){document.getElementById('monCount').textContent='login';return}
-var r=await fetch('/api/auth/me',{headers:authHeaders()});
+if(!TOKEN){document.getElementById('monCount').textContent='--';return}
+var r=await fetch('/api/auth/me',{headers:H()});
 if(r.status===401){TOKEN='';localStorage.removeItem('apitoken');updateUI();return}
 var me=await r.json();
-document.getElementById('userInfo').textContent=me.email+' ('+me.plan+')';
-document.getElementById('planInfo').textContent='('+me.monitors_used+'/'+me.monitors_limit+' used)';
+document.getElementById('userInfo').textContent='SYS::'+me.email.split('@')[0].toUpperCase()+' ['+me.plan.toUpperCase()+']';
+document.getElementById('planInfo').textContent='SLOTS: '+me.monitors_used+'/'+me.monitors_limit;
 document.getElementById('logoutBtn').style.display='inline-block';
 document.getElementById('loginBtn').style.display='none';
 if(me.is_admin) document.getElementById('adminCard').style.display='block';
-var sr=await fetch('/api/stats',{headers:authHeaders()});
+var sr=await fetch('/api/stats',{headers:H()});
 var d=await sr.json();
 document.getElementById('monCount').textContent=d.length;
-var up=d.filter(function(m){return m.last_status&&m.last_status<400;}).length;
+var up=d.filter(function(m){return m.last_status&&m.last_status<400}).length;
 document.getElementById('upCount').textContent=up;
 document.getElementById('downCount').textContent=d.length-up;
-var avgs=d.filter(function(m){return m.avg_ms;}).map(function(m){return m.avg_ms;});
-document.getElementById('avgAll').textContent=avgs.length?Math.round(avgs.reduce(function(a,b){return a+b;})/avgs.length)+'ms':'--';
-var tbody=document.getElementById('monitors');
-tbody.innerHTML=d.map(function(m){
-var s='<span class="status-up">UP</span>';
-if(!m.last_status||m.last_status>=400) s='<span class="status-down">DOWN</span>';
+var avgs=d.filter(function(m){return m.avg_ms}).map(function(m){return m.avg_ms});
+document.getElementById('avgAll').textContent=avgs.length?Math.round(avgs.reduce(function(a,b){return a+b})/avgs.length)+'ms':'--';
+document.getElementById('monitors').innerHTML=d.map(function(m){
+var dot=m.last_status&&m.last_status<400?'<span class="status-dot up"></span>UP':'<span class="status-dot down"></span>DOWN';
 var ssl='--';
-if(m.ssl_days!=null) ssl=m.ssl_days<0?'<span class="status-down">EXP</span>':m.ssl_days<14?'<span class="status-warn">'+m.ssl_days+'d</span>':'<span class="status-up">'+m.ssl_days+'d</span>';
-return '<tr onclick="showDetail('+m.id+',\''+(m.name||m.url).replace(/'/g,'\\\'')+'\')" style="cursor:pointer"><td>'+(m.name||'-')+'</td><td class="mono">'+m.url.substring(0,45)+'</td><td>'+s+'</td><td>'+(m.avg_ms||'--')+'ms</td><td>'+ssl+'</td><td class="mono">'+(m.last_checked||'').substring(11,19)+'</td><td><button class="btn btn-sm btn-danger" onclick="event.stopPropagation();delMon('+m.id+')">X</button></td></tr>';
+if(m.ssl_days!=null) ssl=m.ssl_days<0?'<span class="status-dot down"></span>EXP':m.ssl_days<14?'<span class="status-dot warn"></span>'+m.ssl_days+'d':m.ssl_days+'d';
+return '<tr onclick="showDetail('+m.id+',\''+(m.name||m.url).replace(/'/g,'\\\'')+'\')" style="cursor:pointer"><td>'+(m.name||'---')+'</td><td>'+m.url.substring(0,45)+'</td><td>'+dot+'</td><td>'+(m.avg_ms||'--')+'ms</td><td>'+ssl+'</td><td>'+(m.last_checked||'').substring(11,19)+'</td><td><button class="btn btn-danger" onclick="event.stopPropagation();delMon('+m.id+')">DEL</button></td></tr>';
 }).join('');
 if(me.is_admin) loadAdmin();
 }
 
 async function loadAdmin(){
-var r=await fetch('/api/admin/users',{headers:authHeaders()});
+var r=await fetch('/api/admin/users',{headers:H()});
 var users=await r.json();
 document.getElementById('adminUsers').innerHTML=users.map(function(u){
-return '<tr><td>'+u.email+'</td><td>'+u.plan+'</td><td>'+u.is_admin+'</td><td>'+u.is_active+'</td><td class="mono">'+(u.last_login||'').substring(0,16)+'</td><td><button class="btn btn-sm btn-danger" onclick="adminDeleteUser(\''+u.id+'\')">X</button></td></tr>';
+return '<tr><td>'+u.email+'</td><td>'+u.plan.toUpperCase()+'</td><td>'+(u.is_admin?'YES':'NO')+'</td><td>'+(u.is_active?'ONLINE':'OFFLINE')+'</td><td>'+(u.last_login||'--').substring(0,16)+'</td><td><button class="btn btn-danger" onclick="adminDeleteUser(\''+u.id+'\')">DEL</button></td></tr>';
 }).join('');
 }
 
-async function showDetail(id,name){
-document.getElementById('detailCard').style.display='block';
-document.getElementById('detailName').textContent=name;
-window._mid=id;
-loadChecks();
-}
-
-async function loadChecks(){
-var r=await fetch('/api/monitors/'+window._mid+'/checks?limit=30',{headers:authHeaders()});
-var d=await r.json();
+async function showDetail(id,name){document.getElementById('detailCard').style.display='block';document.getElementById('detailName').textContent=name;window._mid=id;loadChecks();}
+async function loadChecks(){var r=await fetch('/api/monitors/'+window._mid+'/checks?limit=30',{headers:H()});var d=await r.json();
 document.getElementById('checks').innerHTML=d.map(function(c){
-return '<tr><td>'+c.status+'</td><td>'+(c.ms||'--')+'ms</td><td>'+(c.ssl_days!=null?c.ssl_days+'d':'--')+'</td><td style="color:#fca5a5;font-size:.75rem">'+(c.error||'').substring(0,50)+'</td><td class="mono">'+(c.at||'').substring(11,19)+'</td></tr>';
-}).join('');
-}
-
-async function addMonitor(){
-var url=document.getElementById('monUrl').value;
-var name=document.getElementById('monName').value;
-await fetch('/api/monitors',{method:'POST',headers:authHeaders(),body:JSON.stringify({url:url,name:name})});
-document.getElementById('monUrl').value='';
-document.getElementById('monName').value='';
-loadStats();
-}
-
-async function delMon(id){
-if(confirm('Delete?')){
-await fetch('/api/monitors/'+id,{method:'DELETE',headers:authHeaders()});
-loadStats();
-}
-}
-
+return '<tr><td>'+c.status+'</td><td>'+(c.ms||'--')+'ms</td><td>'+(c.ssl_days!=null?c.ssl_days+'d':'--')+'</td><td style="color:var(--red);font-size:.7rem">'+(c.error||'').substring(0,50)+'</td><td>'+(c.at||'').substring(11,19)+'</td></tr>';
+}).join('');}
+async function addMonitor(){var url=document.getElementById('monUrl').value;var name=document.getElementById('monName').value;
+await fetch('/api/monitors',{method:'POST',headers:H(),body:JSON.stringify({url:url,name:name})});
+document.getElementById('monUrl').value='';document.getElementById('monName').value='';loadStats();}
+async function delMon(id){if(confirm('CONFIRM DELETE?')){await fetch('/api/monitors/'+id,{method:'DELETE',headers:H()});loadStats();}}
 function showLogin(){document.getElementById('authBox').style.display='flex';}
 function hideLogin(){document.getElementById('authBox').style.display='none';}
-
-async function doLogin(){
-var email=document.getElementById('loginEmail').value;
-var pw=document.getElementById('loginPass').value;
+async function doLogin(){var email=document.getElementById('loginEmail').value;var pw=document.getElementById('loginPass').value;
 var r=await fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:email,password:pw})});
 var d=await r.json();
 if(r.ok){TOKEN=d.token;localStorage.setItem('apitoken',TOKEN);hideLogin();updateUI();}
-else{document.getElementById('loginError').style.display='block';document.getElementById('loginError').textContent=d.detail||'Login failed';}
-}
-
+else{document.getElementById('loginError').style.display='block';document.getElementById('loginError').textContent=d.detail||'ACCESS DENIED';}}
 function logout(){TOKEN='';localStorage.removeItem('apitoken');updateUI();}
-
-async function adminCreateUser(){
-var email=document.getElementById('newUserEmail').value;
-var plan=document.getElementById('newUserPlan').value;
-var r=await fetch('/api/admin/users',{method:'POST',headers:authHeaders(),body:JSON.stringify({email:email,plan:plan})});
-var d=await r.json();
-if(d.temp_password) alert('Created! Temp password: '+d.temp_password);
-else alert(JSON.stringify(d));
-loadAdmin();
-}
-
-async function adminDeleteUser(id){
-if(confirm('Delete user?')){
-await fetch('/api/admin/users/'+id,{method:'DELETE',headers:authHeaders()});
-loadAdmin();
-}
-}
-
-function updateUI(){
-if(TOKEN) loadStats();
-else{
-document.getElementById('monCount').textContent='login';
-document.getElementById('logoutBtn').style.display='none';
-document.getElementById('loginBtn').style.display='inline-block';
-document.getElementById('adminCard').style.display='none';
-document.getElementById('monitors').innerHTML='';
-}
-}
-
-setInterval(function(){if(TOKEN)loadStats();if(window._mid)loadChecks();},15000);
-updateUI();
+async function adminCreateUser(){var email=document.getElementById('newUserEmail').value;var plan=document.getElementById('newUserPlan').value;
+var r=await fetch('/api/admin/users',{method:'POST',headers:H(),body:JSON.stringify({email:email,plan:plan})});var d=await r.json();
+if(d.temp_password) alert('CREATED! PASSKEY: '+d.temp_password);else alert(JSON.stringify(d));loadAdmin();}
+async function adminDeleteUser(id){if(confirm('CONFIRM DELETE?')){await fetch('/api/admin/users/'+id,{method:'DELETE',headers:H()});loadAdmin();}}
+function updateUI(){if(TOKEN)loadStats();else{
+document.getElementById('monCount').textContent='--';document.getElementById('logoutBtn').style.display='none';
+document.getElementById('loginBtn').style.display='inline-block';document.getElementById('adminCard').style.display='none';
+document.getElementById('monitors').innerHTML='';document.getElementById('userInfo').textContent='SYS::OFFLINE';}}
+setInterval(function(){if(TOKEN)loadStats();if(window._mid)loadChecks();},15000);updateUI();
 </script>
 </body>
 </html>
