@@ -90,8 +90,10 @@ def init_db():
     # Create admin account if not exists
     admin = conn.execute("SELECT id FROM users WHERE email = ?", (ADMIN_EMAIL,)).fetchone()
     if not admin:
+        ADMIN_PW = os.environ.get("ADMIN_PASSWORD", "admin123")
         conn.execute("INSERT INTO users (id, email, password_hash, plan, is_admin) VALUES (?,?,?,?,?)",
-                     ("admin", ADMIN_EMAIL, hash_password(SECRET_KEY), "unlimited", 1))
+                     ("admin", ADMIN_EMAIL, hash_password(ADMIN_PW), "unlimited", 1))
+        print(f"[INIT] Admin created: {ADMIN_EMAIL} / {ADMIN_PW}")
     conn.commit()
     conn.close()
 
@@ -392,6 +394,23 @@ async def admin_update_user(uid: str, req: Request, user: dict = Depends(require
         conn.execute("UPDATE subscriptions SET plan=? WHERE user_id=?", (body["plan"], uid))
     if "is_active" in body:
         conn.execute("UPDATE users SET is_active=? WHERE id=?", (1 if body["is_active"] else 0, uid))
+    if "password" in body:
+        if len(body["password"]) < 8: conn.close(); raise HTTPException(400, "Password min 8 chars")
+        conn.execute("UPDATE users SET password_hash=? WHERE id=?", (hash_password(body["password"]), uid))
+    conn.commit(); conn.close()
+    return {"ok": True}
+
+@app.put("/api/auth/password")
+async def change_password(req: Request, user: dict = Depends(get_current_user)):
+    body = await req.json()
+    old_pw = body.get("old_password","")
+    new_pw = body.get("new_password","")
+    if len(new_pw) < 8: raise HTTPException(400, "Password min 8 chars")
+    conn = get_db()
+    u = conn.execute("SELECT password_hash FROM users WHERE id=?", (user["id"],)).fetchone()
+    if not u or not verify_password(old_pw, u["password_hash"]):
+        conn.close(); raise HTTPException(401, "Wrong current password")
+    conn.execute("UPDATE users SET password_hash=? WHERE id=?", (hash_password(new_pw), user["id"]))
     conn.commit(); conn.close()
     return {"ok": True}
 
