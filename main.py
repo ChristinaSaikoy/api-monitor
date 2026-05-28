@@ -517,7 +517,8 @@ def send_welcome(to_email: str, plan: str, pw: str) -> bool:
 <p style="color:#94a3b8;font-size:12px">Change your password after login. Reply for support.</p>"""}).encode()
         req = urlreq.Request("https://api.resend.com/emails",data=body,
             headers={"Authorization":f"Bearer {RESEND_KEY}","Content-Type":"application/json","User-Agent":"APIMonitor/2.0"})
-        urlreq.urlopen(req,timeout=10)
+        ctx = ssl.create_default_context()
+        urlreq.urlopen(req,timeout=10,context=ctx)
         print(f"[EMAIL] Sent to {to_email}"); return True, ""
     except Exception as e:
         err = str(e)[:200]
