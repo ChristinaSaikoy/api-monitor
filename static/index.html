@@ -197,8 +197,9 @@ document.getElementById('checks').innerHTML=d.map(function(c){
 return '<tr><td>'+c.status+'</td><td>'+(c.ms||'--')+'ms</td><td>'+(c.ssl_days!=null?c.ssl_days+'d':'--')+'</td><td style="color:var(--red);font-size:.7rem">'+(c.error||'').substring(0,50)+'</td><td>'+(c.at||'').substring(11,19)+'</td></tr>';
 }).join('');}
 async function addMonitor(){var url=document.getElementById('monUrl').value;if(!url.startsWith('http'))url='https://'+url;var name=document.getElementById('monName').value;
-await fetch('/api/monitors',{method:'POST',headers:H(),body:JSON.stringify({url:url,name:name})});
-document.getElementById('monUrl').value='';document.getElementById('monName').value='';loadStats();}
+var r=await fetch('/api/monitors',{method:'POST',headers:H(),body:JSON.stringify({url:url,name:name})});
+document.getElementById('monUrl').value='';document.getElementById('monName').value='';loadStats();
+var d=await r.json();if(d.id){setTimeout(async function(){await fetch('/api/monitors/'+d.id+'/check-now',{method:'POST',headers:H()});loadStats();showDetail(d.id,name||url);setTimeout(function(){document.getElementById('detailCard').style.display='none'},3000)},600);}}
 async function delMon(id){if(confirm('CONFIRM DELETE?')){await fetch('/api/monitors/'+id,{method:'DELETE',headers:H()});loadStats();}}
 function showLogin(){document.getElementById('loginPanel').style.display='block';document.getElementById('pwdPanel').style.display='none';document.getElementById('authBox').style.display='flex';}
 function hideLogin(){document.getElementById('authBox').style.display='none';}

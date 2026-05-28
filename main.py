@@ -324,6 +324,18 @@ async def create_monitor(req: Request, user: dict = Depends(get_current_user)):
     conn.commit(); conn.close()
     return {"id": mid, "url": url, "name": name}
 
+@app.post("/api/monitors/{mid}/check-now")
+async def check_now(mid: int, user: dict = Depends(get_current_user)):
+    conn = get_db()
+    owner = conn.execute("SELECT user_id, url FROM monitors WHERE id=?", (mid,)).fetchone()
+    if not owner or owner["user_id"] != user["id"]:
+        conn.close(); raise HTTPException(403, "Not your monitor")
+    r = await check_one(owner["url"])
+    conn.execute("INSERT INTO checks (monitor_id,status_code,response_ms,error,ssl_days_left) VALUES (?,?,?,?,?)",
+                 (mid, r["status"], r["ms"], r["error"], r["ssl_days"]))
+    conn.commit(); conn.close()
+    return {"ok": True, "result": r}
+
 @app.delete("/api/monitors/{mid}")
 async def delete_monitor(mid: int, user: dict = Depends(get_current_user)):
     conn = get_db()
