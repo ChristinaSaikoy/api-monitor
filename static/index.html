@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>API Monitor</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,system-ui,sans-serif;background:#0f172a;color:#e2e8f0;min-height:100vh}
+.header{background:#1e293b;padding:10px 20px;border-bottom:1px solid #334155;display:flex;justify-content:space-between;align-items:center}
+.header h1{font-size:1.1rem;color:#38bdf8}
+.container{max-width:1024px;margin:0 auto;padding:16px}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:14px}
+.stat{background:#1e293b;border-radius:8px;padding:14px;text-align:center}
+.stat .num{font-size:1.6rem;font-weight:700;color:#38bdf8}
+.stat .lbl{font-size:.75rem;color:#94a3b8}
+.card{background:#1e293b;border-radius:8px;padding:16px;margin-bottom:14px}
+.card h2{font-size:1rem;margin-bottom:10px;color:#38bdf8;border-bottom:1px solid #334155;padding-bottom:6px}
+.add-form{display:flex;gap:6px}
+.add-form input{flex:1;padding:8px 10px;background:#0f172a;border:1px solid #334155;border-radius:6px;color:#e2e8f0;font-size:.9rem}
+.add-form input:focus{border-color:#38bdf8;outline:none}
+.btn{padding:8px 14px;background:#38bdf8;color:#0f172a;border:none;border-radius:6px;font-weight:600;cursor:pointer;white-space:nowrap;font-size:.85rem}
+.btn:hover{opacity:.85}.btn-sm{padding:4px 10px;font-size:.75rem}.btn-danger{background:#ef4444;color:#fff}
+.btn-outline{background:transparent;border:1px solid #334155;color:#94a3b8}
+.status-up{color:#6ee7b7}.status-down{color:#fca5a5}.status-warn{color:#fde047}
+table{width:100%;border-collapse:collapse;font-size:.85rem}
+th,td{padding:8px 10px;text-align:left;border-bottom:1px solid #334155}
+th{color:#94a3b8;font-size:.75rem}.mono{font-family:monospace;font-size:.8rem}
+tr:hover{background:#0f172a}
+.auth-box{display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7);justify-content:center;align-items:center;z-index:1000}
+.auth-card{background:#1e293b;border-radius:12px;padding:24px;width:100%;max-width:360px}
+.auth-card h2{color:#38bdf8;margin-bottom:16px}
+.auth-card input{width:100%;padding:10px;margin-bottom:10px;background:#0f172a;border:1px solid #334155;border-radius:6px;color:#e2e8f0}
+.auth-card input:focus{border-color:#38bdf8;outline:none}
+#loginError{color:#fca5a5;font-size:.8rem;display:none}
+select{background:#0f172a;border:1px solid #334155;border-radius:6px;color:#e2e8f0;padding:8px}
+</style>
+</head>
+<body>
+<div class="header"><h1>API Monitor</h1><div style="display:flex;gap:8px;align-items:center"><span id="userInfo" style="color:#94a3b8;font-size:.8rem;margin-right:8px"></span><button class="btn btn-sm btn-outline" onclick="showLogin()" id="loginBtn">Login</button><button class="btn btn-sm btn-outline" onclick="logout()" id="logoutBtn" style="display:none">Logout</button></div></div>
+<div class="auth-box" id="authBox">
+<div class="auth-card">
+<h2>Login</h2>
+<input id="loginEmail" placeholder="Email" type="email">
+<input id="loginPass" placeholder="Password" type="password" onkeydown="if(event.key==='Enter')doLogin()">
+<div id="loginError"></div>
+<button class="btn" style="width:100%;margin-top:4px" onclick="doLogin()">Login</button>
+<button class="btn btn-outline" style="width:100%;margin-top:8px" onclick="hideLogin()">Cancel</button>
+</div></div>
+<div class="container">
+<div class="stats">
+<div class="stat"><div class="num" id="monCount">-</div><div class="lbl">Monitors</div></div>
+<div class="stat"><div class="num" id="upCount">-</div><div class="lbl">Up</div></div>
+<div class="stat"><div class="num" id="downCount">-</div><div class="lbl">Down</div></div>
+<div class="stat"><div class="num" id="avgAll">-</div><div class="lbl">Avg ms</div></div>
+</div>
+<div class="card">
+<h2>Add Monitor</h2>
+<div class="add-form">
+<input id="monUrl" placeholder="https://your-api.com/health">
+<input id="monName" placeholder="Name" style="max-width:150px">
+<button class="btn" onclick="addMonitor()">Add</button>
+</div>
+</div>
+<div class="card">
+<h2>Monitors <span style="font-size:.75rem;color:#94a3b8" id="planInfo"></span></h2>
+<table><thead><tr><th>Name</th><th>URL</th><th>Status</th><th>Avg</th><th>SSL</th><th>Last</th><th></th></tr></thead>
+<tbody id="monitors"></tbody></table>
+</div>
+<div class="card" id="detailCard" style="display:none">
+<h2>History — <span id="detailName"></span></h2>
+<table><thead><tr><th>Status</th><th>ms</th><th>SSL</th><th>Error</th><th>Time</th></tr></thead>
+<tbody id="checks"></tbody></table>
+</div>
+<div class="card" id="adminCard" style="display:none">
+<h2>Admin Panel</h2>
+<div class="add-form" style="margin-bottom:12px">
+<input id="newUserEmail" placeholder="User email" type="email">
+<select id="newUserPlan"><option value="free">Free</option><option value="pro">Pro</option><option value="unlimited">Unlimited</option></select>
+<button class="btn" onclick="adminCreateUser()">Create User</button>
+</div>
+<table><thead><tr><th>Email</th><th>Plan</th><th>Admin</th><th>Active</th><th>Last Login</th><th></th></tr></thead>
+<tbody id="adminUsers"></tbody></table>
+</div>
+</div>
+<script>
+var TOKEN=localStorage.getItem('apitoken')||'';
+function authHeaders(){
+  if(TOKEN) return {Authorization:'Bearer '+TOKEN,'Content-Type':'application/json'};
+  return {'Content-Type':'application/json'};
+}
+
+async function loadStats(){
+if(!TOKEN){document.getElementById('monCount').textContent='login';return}
+var r=await fetch('/api/auth/me',{headers:authHeaders()});
+if(r.status===401){TOKEN='';localStorage.removeItem('apitoken');updateUI();return}
+var me=await r.json();
+document.getElementById('userInfo').textContent=me.email+' ('+me.plan+')';
+document.getElementById('planInfo').textContent='('+me.monitors_used+'/'+me.monitors_limit+' used)';
+document.getElementById('logoutBtn').style.display='inline-block';
+document.getElementById('loginBtn').style.display='none';
+if(me.is_admin) document.getElementById('adminCard').style.display='block';
+var sr=await fetch('/api/stats',{headers:authHeaders()});
+var d=await sr.json();
+document.getElementById('monCount').textContent=d.length;
+var up=d.filter(function(m){return m.last_status&&m.last_status<400;}).length;
+document.getElementById('upCount').textContent=up;
+document.getElementById('downCount').textContent=d.length-up;
+var avgs=d.filter(function(m){return m.avg_ms;}).map(function(m){return m.avg_ms;});
+document.getElementById('avgAll').textContent=avgs.length?Math.round(avgs.reduce(function(a,b){return a+b;})/avgs.length)+'ms':'--';
+var tbody=document.getElementById('monitors');
+tbody.innerHTML=d.map(function(m){
+var s='<span class="status-up">UP</span>';
+if(!m.last_status||m.last_status>=400) s='<span class="status-down">DOWN</span>';
+var ssl='--';
+if(m.ssl_days!=null) ssl=m.ssl_days<0?'<span class="status-down">EXP</span>':m.ssl_days<14?'<span class="status-warn">'+m.ssl_days+'d</span>':'<span class="status-up">'+m.ssl_days+'d</span>';
+return '<tr onclick="showDetail('+m.id+',\''+(m.name||m.url).replace(/'/g,'\\\'')+'\')" style="cursor:pointer"><td>'+(m.name||'-')+'</td><td class="mono">'+m.url.substring(0,45)+'</td><td>'+s+'</td><td>'+(m.avg_ms||'--')+'ms</td><td>'+ssl+'</td><td class="mono">'+(m.last_checked||'').substring(11,19)+'</td><td><button class="btn btn-sm btn-danger" onclick="event.stopPropagation();delMon('+m.id+')">X</button></td></tr>';
+}).join('');
+if(me.is_admin) loadAdmin();
+}
+
+async function loadAdmin(){
+var r=await fetch('/api/admin/users',{headers:authHeaders()});
+var users=await r.json();
+document.getElementById('adminUsers').innerHTML=users.map(function(u){
+return '<tr><td>'+u.email+'</td><td>'+u.plan+'</td><td>'+u.is_admin+'</td><td>'+u.is_active+'</td><td class="mono">'+(u.last_login||'').substring(0,16)+'</td><td><button class="btn btn-sm btn-danger" onclick="adminDeleteUser(\''+u.id+'\')">X</button></td></tr>';
+}).join('');
+}
+
+async function showDetail(id,name){
+document.getElementById('detailCard').style.display='block';
+document.getElementById('detailName').textContent=name;
+window._mid=id;
+loadChecks();
+}
+
+async function loadChecks(){
+var r=await fetch('/api/monitors/'+window._mid+'/checks?limit=30',{headers:authHeaders()});
+var d=await r.json();
+document.getElementById('checks').innerHTML=d.map(function(c){
+return '<tr><td>'+c.status+'</td><td>'+(c.ms||'--')+'ms</td><td>'+(c.ssl_days!=null?c.ssl_days+'d':'--')+'</td><td style="color:#fca5a5;font-size:.75rem">'+(c.error||'').substring(0,50)+'</td><td class="mono">'+(c.at||'').substring(11,19)+'</td></tr>';
+}).join('');
+}
+
+async function addMonitor(){
+var url=document.getElementById('monUrl').value;
+var name=document.getElementById('monName').value;
+await fetch('/api/monitors',{method:'POST',headers:authHeaders(),body:JSON.stringify({url:url,name:name})});
+document.getElementById('monUrl').value='';
+document.getElementById('monName').value='';
+loadStats();
+}
+
+async function delMon(id){
+if(confirm('Delete?')){
+await fetch('/api/monitors/'+id,{method:'DELETE',headers:authHeaders()});
+loadStats();
+}
+}
+
+function showLogin(){document.getElementById('authBox').style.display='flex';}
+function hideLogin(){document.getElementById('authBox').style.display='none';}
+
+async function doLogin(){
+var email=document.getElementById('loginEmail').value;
+var pw=document.getElementById('loginPass').value;
+var r=await fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:email,password:pw})});
+var d=await r.json();
+if(r.ok){TOKEN=d.token;localStorage.setItem('apitoken',TOKEN);hideLogin();updateUI();}
+else{document.getElementById('loginError').style.display='block';document.getElementById('loginError').textContent=d.detail||'Login failed';}
+}
+
+function logout(){TOKEN='';localStorage.removeItem('apitoken');updateUI();}
+
+async function adminCreateUser(){
+var email=document.getElementById('newUserEmail').value;
+var plan=document.getElementById('newUserPlan').value;
+var r=await fetch('/api/admin/users',{method:'POST',headers:authHeaders(),body:JSON.stringify({email:email,plan:plan})});
+var d=await r.json();
+if(d.temp_password) alert('Created! Temp password: '+d.temp_password);
+else alert(JSON.stringify(d));
+loadAdmin();
+}
+
+async function adminDeleteUser(id){
+if(confirm('Delete user?')){
+await fetch('/api/admin/users/'+id,{method:'DELETE',headers:authHeaders()});
+loadAdmin();
+}
+}
+
+function updateUI(){
+if(TOKEN) loadStats();
+else{
+document.getElementById('monCount').textContent='login';
+document.getElementById('logoutBtn').style.display='none';
+document.getElementById('loginBtn').style.display='inline-block';
+document.getElementById('adminCard').style.display='none';
+document.getElementById('monitors').innerHTML='';
+}
+}
+
+setInterval(function(){if(TOKEN)loadStats();if(window._mid)loadChecks();},15000);
+updateUI();
+</script>
+</body>
+</html>
