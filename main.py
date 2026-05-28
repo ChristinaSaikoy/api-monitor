@@ -504,6 +504,7 @@ RESEND_KEY = os.environ.get("RESEND_API_KEY","")
 
 def send_welcome(to_email: str, plan: str, pw: str) -> bool:
     if not RESEND_KEY: return False
+    last_error = ""
     try:
         url = os.environ.get("DASHBOARD_URL","https://api-monitor-production-a5f4.up.railway.app")
         body = json.dumps({"from":"API Monitor <onboarding@resend.dev>","to":[to_email],
@@ -517,8 +518,11 @@ def send_welcome(to_email: str, plan: str, pw: str) -> bool:
         req = urlreq.Request("https://api.resend.com/emails",data=body,
             headers={"Authorization":f"Bearer {RESEND_KEY}","Content-Type":"application/json"})
         urlreq.urlopen(req,timeout=10)
-        print(f"[EMAIL] Sent to {to_email}"); return True
-    except Exception as e: print(f"[EMAIL] Fail {to_email}: {e}"); return False
+        print(f"[EMAIL] Sent to {to_email}"); return True, ""
+    except Exception as e:
+        err = str(e)[:200]
+        print(f"[EMAIL] Fail {to_email}: {err}")
+        return False, err
 
 @app.post("/api/webhooks/gumroad")
 async def gumroad_webhook(req: Request):
@@ -541,9 +545,9 @@ async def gumroad_webhook(req: Request):
     conn.execute("INSERT INTO users(id,email,password_hash,plan) VALUES(?,?,?,?)",(uid,email,hash_password(pw),plan))
     conn.execute("INSERT OR REPLACE INTO subscriptions(user_id,plan) VALUES(?,?)",(uid,plan))
     conn.commit();conn.close()
-    sent=send_welcome(email,plan,pw)
+    sent,err=send_welcome(email,plan,pw)
     print(f"[WEBHOOK] {email} plan={plan} emailed={sent}")
-    return {"ok":True,"action":"created","email":email,"plan":plan,"email_sent":sent}
+    return {"ok":True,"action":"created","email":email,"plan":plan,"email_sent":sent,"email_error":err}
 
 @app.get("/api/webhooks/gumroad/test")
 async def test_webhook(email: str="test@shu.edu.cn",price: int=900):
@@ -559,8 +563,8 @@ async def test_webhook(email: str="test@shu.edu.cn",price: int=900):
         conn.execute("INSERT INTO users(id,email,password_hash,plan) VALUES(?,?,?,?)",(uid,email,hash_password(pw),plan))
         conn.execute("INSERT OR REPLACE INTO subscriptions(user_id,plan) VALUES(?,?)",(uid,plan))
         conn.commit();conn.close()
-    sent=send_welcome(email,plan,pw)
-    return {"ok":True,"action":"upgraded" if u else "created","email":email,"plan":plan,"password":pw if not sent else "(emailed)","email_sent":sent}
+    sent,err=send_welcome(email,plan,pw)
+    return {"ok":True,"action":"upgraded" if u else "created","email":email,"plan":plan,"password":pw if not sent else "(emailed)","email_sent":sent,"email_error":err}
 
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 os.makedirs(STATIC_DIR, exist_ok=True)
