@@ -46,11 +46,7 @@ def init_db():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
-    from monitor import MonitorScheduler
-    app.state.scheduler = MonitorScheduler()
-    app.state.scheduler.start()
     yield
-    app.state.scheduler.stop()
 
 app = FastAPI(title="API Monitor", version="1.0.0", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
