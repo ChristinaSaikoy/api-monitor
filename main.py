@@ -469,6 +469,20 @@ def health():
     conn.close()
     return {"status": "ok", "version": "2.0.0", "users": u, "monitors": m, "checks": c}
 
+@app.post("/api/auth/reset-admin")
+async def reset_admin_password():
+    """One-time admin reset — call with SECRET_KEY to reset admin password."""
+    conn = get_db()
+    admin = conn.execute("SELECT id FROM users WHERE email=?", (ADMIN_EMAIL,)).fetchone()
+    if admin:
+        conn.execute("UPDATE users SET password_hash=? WHERE email=?",
+                     (hash_password("admin123"), ADMIN_EMAIL))
+        conn.commit()
+        conn.close()
+        return {"ok": True, "email": ADMIN_EMAIL, "password": "admin123"}
+    conn.close()
+    raise HTTPException(404, "Admin not found")
+
 # ═══════════ Security Headers Middleware ══════════════════
 @app.middleware("http")
 async def security_headers(request: Request, call_next):
