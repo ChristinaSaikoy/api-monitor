@@ -21,7 +21,70 @@ from pathlib import Path
 # ─── Config ───────────────────────────────────────────────────
 SECRET_KEY = os.environ.get("SECRET_KEY", secrets.token_hex(32))
 ADMIN_EMAIL = "542637706@shu.edu.cn"
-DB = os.path.join(os.path.dirname(os.path.abspath(__file__)), "monitors.db")
+TURSO_URL = os.environ.get("TURSO_DB_URL", "")
+TURSO_TOKEN = os.environ.get("TURSO_AUTH_TOKEN", "")
+USE_TURSO = bool(TURSO_URL and TURSO_TOKEN)
+
+# ═══════════ Turso HTTP Client ═══════════════════════════
+def turso_exec(sql: str, params: tuple = ()) -> list[dict]:
+    """Execute SQL via Turso HTTP pipeline API. Returns list of rows."""
+    body = json.dumps({"requests": [{"type": "execute", "stmt": {"sql": sql, "args": list(params)}}]}).encode()
+    req = urlreq.Request(f"https://{TURSO_URL.replace('libsql://','')}/v2/pipeline",
+        data=body, headers={"Authorization": f"Bearer {TURSO_TOKEN}",
+        "Content-Type": "application/json", "User-Agent": "APIMonitor/2.1"})
+    resp = json.loads(urlreq.urlopen(req, timeout=15).read())
+    result = resp["results"][0]
+    if result.get("type") == "error": raise Exception(result["error"]["message"])
+    cols = result["response"]["result"]["cols"]
+    rows_data = result["response"]["result"].get("rows", [])
+    return [dict(zip([c["name"] for c in cols], [r.get("value") for r in row])) for row in rows_data]
+
+def turso_exec_raw(sql: str, params: tuple = ()) -> int:
+    """Execute SQL that doesn't return rows. Returns rows_affected."""
+    body = json.dumps({"requests": [{"type": "execute", "stmt": {"sql": sql, "args": list(params)}}]}).encode()
+    req = urlreq.Request(f"https://{TURSO_URL.replace('libsql://','')}/v2/pipeline",
+        data=body, headers={"Authorization": f"Bearer {TURSO_TOKEN}",
+        "Content-Type": "application/json", "User-Agent": "APIMonitor/2.1"})
+    resp = json.loads(urlreq.urlopen(req, timeout=15).read())
+    result = resp["results"][0]
+    if result.get("type") == "error": raise Exception(result["error"]["message"])
+    return result["response"]["result"].get("rows_affected", 0)
+
+def turso_batch(requests: list[dict]) -> list[dict]:
+    """Execute multiple SQL statements in one pipeline request."""
+    body = json.dumps({"requests": requests}).encode()
+    req = urlreq.Request(f"https://{TURSO_URL.replace('libsql://','')}/v2/pipeline",
+        data=body, headers={"Authorization": f"Bearer {TURSO_TOKEN}",
+        "Content-Type": "application/json", "User-Agent": "APIMonitor/2.1"})
+    resp = json.loads(urlreq.urlopen(req, timeout=15).read())
+    return resp["results"]
+
+# ═══════════ DB Abstraction ═══════════════════════════════
+if USE_TURSO:
+    def _query(sql, params=()):
+        return turso_exec(sql, params)
+    def _exec(sql, params=()):
+        return turso_exec_raw(sql, params)
+    def _batch(requests):
+        return turso_batch(requests)
+else:
+    DB = os.path.join(os.path.dirname(os.path.abspath(__file__)), "monitors.db")
+    def _query(sql, params=()):
+        conn = sqlite3.connect(DB); conn.row_factory = sqlite3.Row
+        rows = conn.execute(sql, params).fetchall(); conn.close()
+        return [dict(r) for r in rows]
+    def _exec(sql, params=()):
+        conn = sqlite3.connect(DB)
+        cur = conn.execute(sql, params); conn.commit()
+        affected = cur.rowcount; conn.close(); return affected
+    def _batch(requests):
+        conn = sqlite3.connect(DB)
+        results = []
+        for r in requests:
+            cur = conn.execute(r["stmt"]["sql"], r["stmt"].get("args",[]))
+            results.append({"response":{"result":{"rows_affected":cur.rowcount}}})
+        conn.commit(); conn.close()
+        return results
 
 PLANS = {
     "free":     {"monitors": 3,  "interval": 60,  "history_days": 7,   "export": False, "price_monthly": 0, "price_yearly": 0},
