@@ -24,9 +24,9 @@ ADMIN_EMAIL = "542637706@shu.edu.cn"
 DB = os.path.join(os.path.dirname(os.path.abspath(__file__)), "monitors.db")
 
 PLANS = {
-    "free":    {"monitors": 3,  "interval": 60,  "history_days": 7,   "export": False},
-    "pro":     {"monitors": 50, "interval": 60,  "history_days": 30,  "export": True},
-    "unlimited":{"monitors": 99999, "interval": 30, "history_days": 365, "export": True},
+    "free":     {"monitors": 3,  "interval": 60,  "history_days": 7,   "export": False, "price_monthly": 0, "price_yearly": 0},
+    "pro":      {"monitors": 50, "interval": 60,  "history_days": 30,  "export": True,  "price_monthly": 3, "price_yearly": 30},
+    "unlimited":{"monitors": 99999, "interval": 30, "history_days": 365, "export": True,  "price_monthly": 10, "price_yearly": 100},
 }
 
 # ═══════════ DB Layer ═════════════════════════════════════════
@@ -45,11 +45,21 @@ def init_db():
             email TEXT UNIQUE NOT NULL,
             password_hash TEXT NOT NULL,
             plan TEXT DEFAULT 'free',
+            plan_expires_at TEXT,
             api_key TEXT UNIQUE,
             is_admin INTEGER DEFAULT 0,
             is_active INTEGER DEFAULT 1,
             created_at TEXT DEFAULT (datetime('now')),
             last_login TEXT
+        );
+        CREATE TABLE IF NOT EXISTS promo_codes (
+            code TEXT PRIMARY KEY,
+            plan TEXT NOT NULL,
+            duration_months INTEGER DEFAULT 3,
+            max_uses INTEGER DEFAULT 50,
+            used_count INTEGER DEFAULT 0,
+            created_by TEXT,
+            created_at TEXT DEFAULT (datetime('now'))
         );
         CREATE TABLE IF NOT EXISTS monitors (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -88,6 +98,9 @@ def init_db():
             FOREIGN KEY (user_id) REFERENCES users(id)
         );
     """)
+    # Seed default promo code
+    conn.execute("INSERT OR IGNORE INTO promo_codes (code,plan,duration_months,max_uses) VALUES (?,?,?,?)",
+                 ("PH10OFF", "pro", 3, 50))
     # Create admin account if not exists
     admin = conn.execute("SELECT id FROM users WHERE email = ?", (ADMIN_EMAIL,)).fetchone()
     if not admin:
@@ -153,11 +166,19 @@ async def get_current_user(credentials: Annotated[HTTPAuthorizationCredentials |
     token_data = verify_jwt(credentials.credentials)
     if not token_data: raise HTTPException(401, "Invalid or expired token")
     conn = get_db()
-    user = conn.execute("SELECT id, email, plan, is_admin, is_active FROM users WHERE id=?", (token_data["sub"],)).fetchone()
+    user = conn.execute("SELECT id, email, plan, is_admin, is_active, plan_expires_at FROM users WHERE id=?", (token_data["sub"],)).fetchone()
     conn.close()
     if not user or not user["is_active"]: raise HTTPException(401, "Account inactive or deleted")
-    return {"id": user["id"], "email": user["email"], "plan": user["plan"],
-            "is_admin": bool(user["is_admin"])}
+    # Check if paid plan expired
+    plan = user["plan"]
+    if plan != "free" and user["plan_expires_at"]:
+        if datetime.now().isoformat() > user["plan_expires_at"]:
+            plan = "free"
+            conn2 = get_db()
+            conn2.execute("UPDATE users SET plan='free', plan_expires_at=NULL WHERE id=?", (user["id"],))
+            conn2.commit(); conn2.close()
+    return {"id": user["id"], "email": user["email"], "plan": plan,
+            "plan_expires": user["plan_expires_at"], "is_admin": bool(user["is_admin"])}
 
 async def require_admin(user: dict = Depends(get_current_user)) -> dict:
     if not user["is_admin"]: raise HTTPException(403, "Admin only")
@@ -264,23 +285,47 @@ async def register(req: Request):
     body = await req.json()
     email = body.get("email","").strip()
     password = body.get("password","")
-    # Only admin can create accounts
-    auth = req.headers.get("Authorization","")
-    if auth.startswith("Bearer "):
-        token_data = verify_jwt(auth[7:])
-        if not token_data or not token_data.get("admin"):
-            raise HTTPException(403, "Only admin can create accounts")
-    else:
-        raise HTTPException(403, "Admin auth required for registration")
+    promo_code = body.get("promo_code","").strip().upper()
     if len(password) < 8: raise HTTPException(400, "Password min 8 chars")
+    if not email or "@" not in email: raise HTTPException(400, "Valid email required")
     conn = get_db()
     exists = conn.execute("SELECT id FROM users WHERE email=?", (email,)).fetchone()
     if exists: conn.close(); raise HTTPException(409, "Email already registered")
+    # Determine plan from promo code or default to free
+    plan = "free"
+    expires = None
+    if promo_code:
+        promo = conn.execute("SELECT * FROM promo_codes WHERE code=? AND used_count < max_uses", (promo_code,)).fetchone()
+        if promo:
+            plan = promo["plan"]
+            from datetime import timedelta
+            exp_date = (datetime.now() + timedelta(days=promo["duration_months"] * 30)).isoformat()
+            expires = exp_date
+            conn.execute("UPDATE promo_codes SET used_count = used_count + 1 WHERE code = ?", (promo_code,))
     uid = secrets.token_hex(8)
-    conn.execute("INSERT INTO users (id, email, password_hash, plan) VALUES (?,?,?,?)",
-                 (uid, email, hash_password(password), "free"))
+    conn.execute("INSERT INTO users (id, email, password_hash, plan, plan_expires_at) VALUES (?,?,?,?,?)",
+                 (uid, email, hash_password(password), plan, expires))
+    if plan != "free":
+        conn.execute("INSERT OR REPLACE INTO subscriptions (user_id, plan) VALUES (?,?)", (uid, plan))
     conn.commit(); conn.close()
-    return {"user_id": uid, "email": email, "plan": "free"}
+    token = create_jwt(uid, False)
+    return {"token": token, "user": {"id": uid, "email": email, "plan": plan, "plan_expires": expires,
+            "is_admin": False, "promo_applied": bool(promo_code and plan != "free")}}
+
+@app.post("/api/auth/redeem")
+async def redeem_code(req: Request, user: dict = Depends(get_current_user)):
+    body = await req.json()
+    code = body.get("code","").strip().upper()
+    conn = get_db()
+    promo = conn.execute("SELECT * FROM promo_codes WHERE code=? AND used_count < max_uses", (code,)).fetchone()
+    if not promo: conn.close(); raise HTTPException(404, "Invalid or expired code")
+    from datetime import timedelta
+    exp_date = (datetime.now() + timedelta(days=promo["duration_months"] * 30)).isoformat()
+    conn.execute("UPDATE users SET plan=?, plan_expires_at=? WHERE id=?", (promo["plan"], exp_date, user["id"]))
+    conn.execute("UPDATE promo_codes SET used_count = used_count + 1 WHERE code = ?", (code,))
+    conn.execute("INSERT OR REPLACE INTO subscriptions (user_id, plan) VALUES (?,?)", (user["id"], promo["plan"]))
+    conn.commit(); conn.close()
+    return {"ok": True, "plan": promo["plan"], "expires": exp_date}
 
 class LoginBody(BaseModel):
     email: str
@@ -311,7 +356,8 @@ async def me(user: dict = Depends(get_current_user)):
     m_count = conn.execute("SELECT COUNT(*) FROM monitors WHERE user_id=?", (user["id"],)).fetchone()[0]
     conn.close()
     return {**user, "monitors_used": m_count, "monitors_limit": plan_cfg["monitors"],
-            "checks_interval": plan_cfg["interval"], "history_days": plan_cfg["history_days"]}
+            "checks_interval": plan_cfg["interval"], "history_days": plan_cfg["history_days"],
+            "pricing": {"monthly": plan_cfg["price_monthly"], "yearly": plan_cfg["price_yearly"]}}
 
 # ═══════════ Monitor Endpoints (per-user) ══════════════════
 @app.get("/api/monitors")
@@ -459,6 +505,33 @@ async def admin_stats(user: dict = Depends(require_admin)):
         "total_checks": conn.execute("SELECT COUNT(*) FROM checks").fetchone()[0],
         "by_plan": {p: conn.execute("SELECT COUNT(*) FROM users WHERE plan=?", (p,)).fetchone()[0] for p in PLANS},
     }
+
+@app.get("/api/admin/promo-codes")
+async def admin_promo_codes(user: dict = Depends(require_admin)):
+    rows = get_db().execute("SELECT * FROM promo_codes ORDER BY created_at DESC").fetchall()
+    return [dict(r) for r in rows]
+
+@app.post("/api/admin/promo-codes")
+async def admin_create_promo(req: Request, user: dict = Depends(require_admin)):
+    body = await req.json()
+    code = body.get("code","").strip().upper()
+    plan = body.get("plan","pro")
+    months = int(body.get("duration_months", 3))
+    max_uses = int(body.get("max_uses", 50))
+    if not code or plan not in PLANS or plan == "free":
+        raise HTTPException(400, "Invalid code or plan")
+    conn = get_db()
+    conn.execute("INSERT OR REPLACE INTO promo_codes (code,plan,duration_months,max_uses,created_by) VALUES (?,?,?,?,?)",
+                 (code, plan, months, max_uses, user["id"]))
+    conn.commit(); conn.close()
+    return {"ok": True, "code": code, "plan": plan, "duration_months": months}
+
+@app.delete("/api/admin/promo-codes/{code}")
+async def admin_delete_promo(code: str, user: dict = Depends(require_admin)):
+    conn = get_db()
+    conn.execute("DELETE FROM promo_codes WHERE code=?", (code.upper(),))
+    conn.commit(); conn.close()
+    return {"ok": True}
 
 # ═══════════ Data Export ══════════════════════════════════
 @app.get("/api/export/monitors")

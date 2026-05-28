@@ -70,6 +70,9 @@ tr:hover td{background:rgba(0,240,255,0.03)}
 #detailCard{display:none}
 
 select{background:rgba(0,0,0,0.4);border:1px solid var(--border);border-radius:2px;color:var(--text);padding:8px 12px;font-family:'Share Tech Mono',monospace;font-size:.8rem;outline:none}
+.tab-btn{background:transparent;border:none;color:var(--dim);padding:10px 20px;cursor:pointer;font-family:inherit;font-size:.9rem;font-weight:500;border-bottom:2px solid transparent;transition:all .2s}
+.tab-btn.active{color:var(--cyan);border-bottom-color:var(--cyan)}
+.tab-btn:hover{color:var(--text)}
 
 @media(max-width:768px){.stats{grid-template-columns:repeat(2,1fr)}}
 </style>
@@ -91,11 +94,28 @@ select{background:rgba(0,0,0,0.4);border:1px solid var(--border);border-radius:2
 
 <div class="modal-overlay" id="authBox">
 <div class="modal" id="loginPanel">
-<h2>// LOGIN</h2>
+<div style="display:flex;gap:0;margin-bottom:20px;border-bottom:1px solid var(--border)">
+<button class="tab-btn active" onclick="switchTab('login')" id="tabLogin">Sign In</button>
+<button class="tab-btn" onclick="switchTab('signup')" id="tabSignup">Create Account</button>
+</div>
+<div id="loginForm">
 <input id="loginEmail" placeholder="Email" type="email">
 <input id="loginPass" placeholder="Password" type="password" onkeydown="if(event.key==='Enter')doLogin()">
-<div id="loginError">ACCESS DENIED</div>
+<div id="loginError" style="color:var(--red);font-size:.8rem;display:none;font-family:'Share Tech Mono',monospace;margin-top:4px"></div>
 <button class="btn btn-primary" onclick="doLogin()">Sign In</button>
+</div>
+<div id="signupForm" style="display:none">
+<input id="signupEmail" placeholder="Email" type="email">
+<input id="signupPass" placeholder="Password (min 8 chars)" type="password">
+<input id="signupPromo" placeholder="Promo code (optional)" type="text" style="border-color:var(--yellow);border-style:dashed">
+<div id="signupError" style="color:var(--red);font-size:.8rem;display:none;font-family:'Share Tech Mono',monospace;margin-top:4px"></div>
+<div id="signupOk" style="color:var(--green);font-size:.8rem;display:none;font-family:'Share Tech Mono',monospace;margin-top:4px"></div>
+<button class="btn btn-primary" onclick="doSignup()">Create Account</button>
+<div id="signupPricing" style="margin-top:12px;padding:12px;background:rgba(0,240,255,0.05);border-radius:4px;font-size:.75rem;font-family:'Share Tech Mono',monospace;color:var(--dim)">
+<span style="color:var(--cyan)">Pricing:</span> Free (3 monitors) | Pro ¥3/mo (50) | Unlimited ¥10/mo (inf)<br>
+<span style="color:var(--yellow)">Yearly:</span> Pro ¥30/yr | Unlimited ¥100/yr
+</div>
+</div>
 <button class="btn btn-ghost" style="margin-top:6px" onclick="hideLogin()">Cancel</button>
 </div>
 <div class="modal" id="pwdPanel" style="display:none">
@@ -160,7 +180,8 @@ if(!TOKEN){document.getElementById('monCount').textContent='--';return}
 var r=await fetch('/api/auth/me',{headers:H()});
 if(r.status===401){TOKEN='';localStorage.removeItem('apitoken');updateUI();return}
 var me=await r.json();
-document.getElementById('userInfo').textContent='SYS::'+me.email.split('@')[0].toUpperCase()+' ['+me.plan.toUpperCase()+']';
+var expInfo='';if(me.plan_expires)expInfo=' EXP:'+me.plan_expires.substring(0,10);
+document.getElementById('userInfo').textContent='SYS::'+me.email.split('@')[0].toUpperCase()+' ['+me.plan.toUpperCase()+expInfo+']';
 document.getElementById('planInfo').textContent='SLOTS: '+me.monitors_used+'/'+me.monitors_limit;
 document.getElementById('logoutBtn').style.display='inline-block';
 document.getElementById('pwdBtn').style.display='inline-block';
@@ -201,7 +222,15 @@ var r=await fetch('/api/monitors',{method:'POST',headers:H(),body:JSON.stringify
 document.getElementById('monUrl').value='';document.getElementById('monName').value='';loadStats();
 var d=await r.json();if(d.id){setTimeout(async function(){await fetch('/api/monitors/'+d.id+'/check-now',{method:'POST',headers:H()});loadStats();showDetail(d.id,name||url);setTimeout(function(){document.getElementById('detailCard').style.display='none'},3000)},600);}}
 async function delMon(id){if(confirm('CONFIRM DELETE?')){await fetch('/api/monitors/'+id,{method:'DELETE',headers:H()});loadStats();}}
-function showLogin(){document.getElementById('loginPanel').style.display='block';document.getElementById('pwdPanel').style.display='none';document.getElementById('authBox').style.display='flex';}
+function switchTab(tab){
+document.getElementById('tabLogin').className=tab==='login'?'tab-btn active':'tab-btn';
+document.getElementById('tabSignup').className=tab==='signup'?'tab-btn active':'tab-btn';
+document.getElementById('loginForm').style.display=tab==='login'?'block':'none';
+document.getElementById('signupForm').style.display=tab==='signup'?'block':'none';
+document.getElementById('loginError').style.display='none';
+document.getElementById('signupError').style.display='none';
+document.getElementById('signupOk').style.display='none';}
+function showLogin(){document.getElementById('loginPanel').style.display='block';document.getElementById('pwdPanel').style.display='none';document.getElementById('authBox').style.display='flex';switchTab('login');}
 function hideLogin(){document.getElementById('authBox').style.display='none';}
 function showPwChange(){document.getElementById('pwdPanel').style.display='block';document.getElementById('loginPanel').style.display='none';document.getElementById('authBox').style.display='flex';}
 function hidePwChange(){document.getElementById('authBox').style.display='none';document.getElementById('pwdError').style.display='none';document.getElementById('pwdOk').style.display='none';}
@@ -216,6 +245,16 @@ var r=await fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'appl
 var d=await r.json();
 if(r.ok){TOKEN=d.token;localStorage.setItem('apitoken',TOKEN);hideLogin();updateUI();}
 else{document.getElementById('loginError').style.display='block';document.getElementById('loginError').textContent=d.detail||'ACCESS DENIED';}}
+async function doSignup(){
+var e=document.getElementById('signupEmail').value;var p=document.getElementById('signupPass').value;
+var code=document.getElementById('signupPromo').value.trim();
+if(p.length<8){document.getElementById('signupError').style.display='block';document.getElementById('signupError').textContent='Password must be at least 8 characters';return}
+var r=await fetch('/api/auth/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:e,password:p,promo_code:code})});
+var d=await r.json();
+if(r.ok){TOKEN=d.token;localStorage.setItem('apitoken',TOKEN);document.getElementById('signupOk').style.display='block';
+var msg='Account created!';if(d.user.promo_applied)msg+=' Promo code applied: '+d.user.plan.toUpperCase()+' for 3 months.';
+document.getElementById('signupOk').textContent=msg;setTimeout(function(){hideLogin();updateUI()},1500)}
+else{document.getElementById('signupError').style.display='block';document.getElementById('signupError').textContent=d.detail||'Registration failed'}}
 function logout(){TOKEN='';localStorage.removeItem('apitoken');updateUI();}
 async function adminCreateUser(){var email=document.getElementById('newUserEmail').value;var plan=document.getElementById('newUserPlan').value;
 var r=await fetch('/api/admin/users',{method:'POST',headers:H(),body:JSON.stringify({email:email,plan:plan})});var d=await r.json();
