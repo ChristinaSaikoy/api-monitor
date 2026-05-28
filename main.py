@@ -768,7 +768,8 @@ STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 os.makedirs(STATIC_DIR, exist_ok=True)
 @app.get("/api/debug/env")
 def debug_env():
-    return {"resend_key_set": bool(RESEND_KEY), "resend_prefix": RESEND_KEY[:8] if RESEND_KEY else "empty"}
+    return {"resend_key_set": bool(RESEND_KEY), "resend_prefix": RESEND_KEY[:8] if RESEND_KEY else "empty",
+            "turso": USE_TURSO, "turso_url": TURSO_URL[:30] if TURSO_URL else "not set"}
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
