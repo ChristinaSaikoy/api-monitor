@@ -3,7 +3,7 @@
 from fastapi import FastAPI, HTTPException, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
-import sqlite3
+import sqlite3, os
 from datetime import datetime
 
 DB = "monitors.db"
@@ -83,3 +83,7 @@ def get_checks(monitor_id: int, limit: int = 10):
         (monitor_id, limit)).fetchall()
     conn.close()
     return [{"status": r[0], "ms": r[1], "error": r[2], "at": r[3]} for r in rows]
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=int(os.environ.get("PORT", 8000)))
