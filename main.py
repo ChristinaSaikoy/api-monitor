@@ -60,8 +60,55 @@ def turso_batch(requests: list[dict]) -> list[dict]:
     return resp["results"]
 
 # ═══════════ DB Abstraction ═══════════════════════════════
-# URL-based DB for Turso syncing
 DB = os.path.join(os.path.dirname(os.path.abspath(__file__)), "monitors.db")
+
+# ═══════════ Turso Backup / Restore ═══════════════════════
+def turso_snapshot():
+    """Upload entire SQLite DB to Turso for persistence across deploys."""
+    if not USE_TURSO or not os.path.exists(DB): return
+    try:
+        data = open(DB, "rb").read()
+        body = json.dumps({
+            "requests": [{"type": "execute", "stmt": {"sql": "CREATE TABLE IF NOT EXISTS db_snapshot (id INTEGER PRIMARY KEY, data BLOB, created_at TEXT DEFAULT (datetime('now')))"}},
+                         {"type": "execute", "stmt": {"sql": "DELETE FROM db_snapshot"}},
+                         {"type": "execute", "stmt": {"sql": "INSERT INTO db_snapshot (id, data) VALUES (1, ?)", "args": [{"type": "blob", "base64": b64(data)}]}}]
+        }).encode()
+        req = urlreq.Request(f"https://{TURSO_URL.replace('libsql://','')}/v2/pipeline",
+            data=body, headers={"Authorization": f"Bearer {TURSO_TOKEN}",
+            "Content-Type": "application/json", "User-Agent": "APIMonitor/2.1"})
+        urlreq.urlopen(req, timeout=20)
+        print("[TURSO] Snapshot uploaded")
+    except Exception as e:
+        print(f"[TURSO] Snapshot failed: {e}")
+
+def turso_restore():
+    """Restore DB from Turso if local DB is empty/new."""
+    if not USE_TURSO: return
+    try:
+        body = json.dumps({"requests": [
+            {"type": "execute", "stmt": {"sql": "CREATE TABLE IF NOT EXISTS db_snapshot (id INTEGER PRIMARY KEY, data BLOB, created_at TEXT DEFAULT (datetime('now')))"}},
+            {"type": "execute", "stmt": {"sql": "SELECT data FROM db_snapshot WHERE id=1"}}
+        ]}).encode()
+        req = urlreq.Request(f"https://{TURSO_URL.replace('libsql://','')}/v2/pipeline",
+            data=body, headers={"Authorization": f"Bearer {TURSO_TOKEN}",
+            "Content-Type": "application/json", "User-Agent": "APIMonitor/2.1"})
+        resp = json.loads(urlreq.urlopen(req, timeout=15).read())
+        rows = resp["results"][1]["response"]["result"].get("rows", [])
+        if rows:
+            raw = rows[0][0].get("value", "")
+            if raw:
+                open(DB, "wb").write(b64_decode(raw))
+                print(f"[TURSO] Restored snapshot ({len(raw)} bytes)")
+    except Exception as e:
+        print(f"[TURSO] Restore failed: {e}")
+
+def b64(data: bytes) -> str:
+    return base64.b64encode(data).decode()
+def b64_decode(s: str) -> bytes:
+    import base64 as b64mod
+    return b64mod.b64decode(s)
+
+import base64
 
 PLANS = {
     "free":     {"monitors": 3,  "interval": 60,  "history_days": 7,   "export": False, "price_monthly": 0, "price_yearly": 0},
@@ -78,6 +125,8 @@ def get_db():
     return conn
 
 def init_db():
+    # Restore from Turso if local DB is fresh
+    turso_restore()
     conn = get_db()
     conn.executescript("""
         CREATE TABLE IF NOT EXISTS users (
@@ -263,6 +312,11 @@ async def cleanup_old_checks():
             pass
         await asyncio.sleep(3600)  # hourly cleanup
 
+async def turso_backup_loop():
+    while True:
+        await asyncio.sleep(300)  # every 5 minutes
+        turso_snapshot()
+
 # ═══════════ Monitor Engine ══════════════════════════════════
 async def check_one(url: str) -> dict:
     result = {"status": 0, "ms": 0, "error": None, "ssl_days": None}
@@ -311,8 +365,10 @@ async def lifespan(app: FastAPI):
     init_db()
     task1 = asyncio.create_task(monitor_loop())
     task2 = asyncio.create_task(cleanup_old_checks())
+    task3 = asyncio.create_task(turso_backup_loop())
+    turso_snapshot()  # immediate first backup
     yield
-    task1.cancel(); task2.cancel()
+    task1.cancel(); task2.cancel(); task3.cancel()
 
 app = FastAPI(title="API Monitor", version="2.1.0", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
