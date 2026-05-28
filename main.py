@@ -443,7 +443,8 @@ async def login(body: LoginBody, req: Request):
     expire = 7 if body.remember_me else 1
     token = create_jwt(user["id"], bool(user["is_admin"]), expire)
     return {"token": token, "user": {"id": user["id"], "email": user["email"],
-            "plan": user["plan"], "is_admin": bool(user["is_admin"])}}
+            "plan": user["plan"], "plan_expires": user["plan_expires_at"],
+            "is_admin": bool(user["is_admin"])}}
 
 @app.get("/api/auth/me")
 async def me(user: dict = Depends(get_current_user)):
