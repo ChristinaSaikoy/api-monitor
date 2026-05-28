@@ -60,31 +60,8 @@ def turso_batch(requests: list[dict]) -> list[dict]:
     return resp["results"]
 
 # ═══════════ DB Abstraction ═══════════════════════════════
-if USE_TURSO:
-    def _query(sql, params=()):
-        return turso_exec(sql, params)
-    def _exec(sql, params=()):
-        return turso_exec_raw(sql, params)
-    def _batch(requests):
-        return turso_batch(requests)
-else:
-    DB = os.path.join(os.path.dirname(os.path.abspath(__file__)), "monitors.db")
-    def _query(sql, params=()):
-        conn = sqlite3.connect(DB); conn.row_factory = sqlite3.Row
-        rows = conn.execute(sql, params).fetchall(); conn.close()
-        return [dict(r) for r in rows]
-    def _exec(sql, params=()):
-        conn = sqlite3.connect(DB)
-        cur = conn.execute(sql, params); conn.commit()
-        affected = cur.rowcount; conn.close(); return affected
-    def _batch(requests):
-        conn = sqlite3.connect(DB)
-        results = []
-        for r in requests:
-            cur = conn.execute(r["stmt"]["sql"], r["stmt"].get("args",[]))
-            results.append({"response":{"result":{"rows_affected":cur.rowcount}}})
-        conn.commit(); conn.close()
-        return results
+# URL-based DB for Turso syncing
+DB = os.path.join(os.path.dirname(os.path.abspath(__file__)), "monitors.db")
 
 PLANS = {
     "free":     {"monitors": 3,  "interval": 60,  "history_days": 7,   "export": False, "price_monthly": 0, "price_yearly": 0},
@@ -93,42 +70,12 @@ PLANS = {
 }
 
 # ═══════════ DB Layer ═════════════════════════════════════════
-if not USE_TURSO:
-    def get_db():
-        conn = sqlite3.connect(DB)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("PRAGMA foreign_keys=ON")
-        return conn
-else:
-    class TursoDB:
-        def execute(self, sql, params=()):
-            return TursoCursor(sql, params)
-        def commit(self): pass
-        def close(self): pass
-    class TursoCursor:
-        def __init__(self, sql, params):
-            self.sql = sql; self.params = params
-            self._result = None
-        def fetchone(self):
-            if self._result is None:
-                rows = _query(self.sql, self.params)
-                self._result = rows
-            return self._result[0] if self._result else None
-        def fetchall(self):
-            if self._result is None:
-                self._result = _query(self.sql, self.params)
-            return self._result
-        @property
-        def lastrowid(self):
-            # For INSERT, return last inserted ID via separate query
-            # Turso doesn't support lastrowid directly
-            return 0
-        @property
-        def rowcount(self):
-            return _exec(self.sql, self.params)
-    def get_db():
-        return TursoDB()
+def get_db():
+    conn = sqlite3.connect(DB)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA foreign_keys=ON")
+    return conn
 
 def init_db():
     conn = get_db()
