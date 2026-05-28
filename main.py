@@ -314,7 +314,7 @@ async def create_monitor(req: Request, user: dict = Depends(get_current_user)):
     body = await req.json()
     url = body.get("url","").strip()
     name = body.get("name","")
-    if not url.startswith("http"): raise HTTPException(400, "Invalid URL")
+    if not url.startswith("http"): url = "https://" + url
     conn = get_db()
     count = conn.execute("SELECT COUNT(*) FROM monitors WHERE user_id=?", (user["id"],)).fetchone()[0]
     limit = PLANS[user["plan"]]["monitors"]
