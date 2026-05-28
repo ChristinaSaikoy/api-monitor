@@ -240,7 +240,7 @@ async def lifespan(app: FastAPI):
     yield
     task1.cancel(); task2.cancel()
 
-app = FastAPI(title="API Monitor", version="2.0.0", lifespan=lifespan)
+app = FastAPI(title="API Monitor", version="2.1.0", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 # ═══════════ Auth Endpoints ════════════════════════════════
