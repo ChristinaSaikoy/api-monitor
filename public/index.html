@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="test">
+    <title>API Monitor — Simple, Affordable Monitoring</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, system-ui, sans-serif; line-height: 1.6; color: #1a1a2e; }
+        .hero { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 80px 20px; text-align: center; }
+        .hero h1 { font-size: 2.5rem; margin-bottom: 1rem; }
+        .hero p { font-size: 1.2rem; opacity: 0.9; max-width: 600px; margin: 0 auto 2rem; }
+        .pricing { display: flex; justify-content: center; gap: 24px; padding: 60px 20px; max-width: 960px; margin: 0 auto; }
+        .plan { border: 1px solid #e0e0e0; border-radius: 12px; padding: 32px 24px; flex: 1; text-align: center; }
+        .plan.featured { border-color: #667eea; box-shadow: 0 4px 20px rgba(102,126,234,0.15); }
+        .plan h3 { font-size: 1.4rem; margin-bottom: 0.5rem; }
+        .plan .price { font-size: 2rem; font-weight: 700; margin: 1rem 0; }
+        .plan .price span { font-size: 1rem; color: #666; }
+        .plan ul { list-style: none; margin: 1.5rem 0; }
+        .plan li { padding: 4px 0; }
+        .btn { display: inline-block; padding: 12px 32px; border-radius: 8px; font-weight: 600; text-decoration: none; margin-top: 1rem; }
+        .btn-primary { background: #667eea; color: white; }
+        .btn-outline { border: 2px solid #667eea; color: #667eea; }
+        .features { padding: 60px 20px; max-width: 960px; margin: 0 auto; }
+        .features h2 { text-align: center; margin-bottom: 2rem; }
+        .feature-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 24px; }
+        .feature { padding: 24px; background: #f8f9fa; border-radius: 8px; }
+        .footer { text-align: center; padding: 40px 20px; color: #999; font-size: 0.9rem; }
+    </style>
+</head>
+<body>
+    <section class="hero">
+        <h1>API Monitor</h1>
+        <p>test</p>
+        <a href="/signup" class="btn btn-primary">Start Free</a>
+    </section>
+
+    <section class="features">
+        <h2>Features</h2>
+        <div class="feature-grid">
+            <div class="feature">
+                <h3>Uptime Monitoring</h3>
+                <p>Check your endpoints every 60 seconds from multiple global locations.</p>
+            </div>
+            <div class="feature">
+                <h3>Response Time Analysis</h3>
+                <p>Track response time trends and get alerted on performance degradation.</p>
+            </div>
+            <div class="feature">
+                <h3>SSL Certificate Alerts</h3>
+                <p>Get notified 30/14/7 days before your SSL certificate expires.</p>
+            </div>
+            <div class="feature">
+                <h3>Multiple Alert Channels</h3>
+                <p>Telegram, Email, Slack, and Webhook — choose how you want to be notified.</p>
+            </div>
+        </div>
+    </section>
+
+    <section class="pricing">
+        <div class="plan">
+            <h3>Free</h3>
+            <div class="price">$0<span>/mo</span></div>
+            <ul>
+                <li>3 monitors</li>
+                <li>5-minute checks</li>
+                <li>Email alerts</li>
+                <li>7-day history</li>
+            </ul>
+            <a href="/signup" class="btn btn-outline">Get Started</a>
+        </div>
+        <div class="plan featured">
+            <h3>Pro</h3>
+            <div class="price">$9<span>/mo</span></div>
+            <ul>
+                <li>50 monitors</li>
+                <li>1-minute checks</li>
+                <li>All alert channels</li>
+                <li>30-day history</li>
+            </ul>
+            <a href="/signup?plan=pro" class="btn btn-primary">Start Pro</a>
+        </div>
+        <div class="plan">
+            <h3>Unlimited</h3>
+            <div class="price">$29<span>/mo</span></div>
+            <ul>
+                <li>Unlimited monitors</li>
+                <li>30-second checks</li>
+                <li>Priority support</li>
+                <li>1-year history</li>
+            </ul>
+            <a href="/signup?plan=unlimited" class="btn btn-primary">Go Unlimited</a>
+        </div>
+    </section>
+
+    <div class="footer">
+        <p>&copy; 2026 API Monitor. All rights reserved.</p>
+    </div>
+</body>
+</html>
