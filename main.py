@@ -564,6 +564,10 @@ async def test_webhook(email: str="test@shu.edu.cn",price: int=900):
 
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 os.makedirs(STATIC_DIR, exist_ok=True)
+@app.get("/api/debug/env")
+def debug_env():
+    return {"resend_key_set": bool(RESEND_KEY), "resend_prefix": RESEND_KEY[:8] if RESEND_KEY else "empty"}
+
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 @app.get("/")
