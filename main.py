@@ -506,7 +506,7 @@ def send_welcome(to_email: str, plan: str, pw: str) -> bool:
     if not RESEND_KEY: return False
     try:
         url = os.environ.get("DASHBOARD_URL","https://api-monitor-production-a5f4.up.railway.app")
-        body = json.dumps({"from":"API Monitor <noreply@api-monitor.app>","to":[to_email],
+        body = json.dumps({"from":"API Monitor <onboarding@resend.dev>","to":[to_email],
             "subject":f"Your API Monitor Account ({plan.title()} Plan)",
             "html":f"""<h2 style="color:#38bdf8">API Monitor — Ready!</h2>
 <p>Your <b>{plan.title()}</b> account ({PLANS[plan]['monitors']} monitors) is active.</p>
