@@ -495,6 +495,76 @@ async def security_headers(request: Request, call_next):
     response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
     return response
 
+# ═══════════ Gumroad Webhook — Auto-create user + send email ═
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+
+SMTP_CFG = {"host": os.environ.get("SMTP_HOST","smtp.qq.com"),
+            "port": int(os.environ.get("SMTP_PORT","587")),
+            "user": os.environ.get("SMTP_USER","542637706@qq.com"),
+            "pw": os.environ.get("SMTP_PASSWORD","")}
+
+def send_welcome(to_email: str, plan: str, pw: str) -> bool:
+    if not SMTP_CFG["pw"]: return False
+    try:
+        msg = MIMEMultipart(); msg["From"]=SMTP_CFG["user"]; msg["To"]=to_email
+        msg["Subject"]=f"Your API Monitor Account ({plan.title()} Plan)"
+        url = os.environ.get("DASHBOARD_URL","https://api-monitor-production-a5f4.up.railway.app")
+        msg.attach(MIMEText(f"""<html><body style="font-family:Arial;max-width:600px">
+<h2 style="color:#38bdf8">API Monitor — Ready!</h2>
+<p>Your <b>{plan.title()}</b> account ({PLANS[plan]['monitors']} monitors) is active.</p>
+<table style="border-collapse:collapse;width:100%"><tr><td style="padding:8px;background:#1e293b;color:#e2e8f0;font-weight:bold">Dashboard</td><td style="padding:8px"><a href="{url}">{url}</a></td></tr>
+<tr><td style="padding:8px;background:#1e293b;color:#e2e8f0;font-weight:bold">Email</td><td style="padding:8px">{to_email}</td></tr>
+<tr><td style="padding:8px;background:#1e293b;color:#e2e8f0;font-weight:bold">Password</td><td style="padding:8px"><code>{pw}</code></td></tr></table>
+<p style="color:#94a3b8;font-size:12px">Change your password after login. Reply for support.</p></body></html>""","html"))
+        with smtplib.SMTP(SMTP_CFG["host"],SMTP_CFG["port"],timeout=15) as s:
+            s.starttls(); s.login(SMTP_CFG["user"],SMTP_CFG["pw"]); s.sendmail(SMTP_CFG["user"],to_email,msg.as_string())
+        print(f"[EMAIL] Sent to {to_email}"); return True
+    except Exception as e: print(f"[EMAIL] Fail {to_email}: {e}"); return False
+
+@app.post("/api/webhooks/gumroad")
+async def gumroad_webhook(req: Request):
+    body = await req.json()
+    sale = body.get("sale",body)
+    email = sale.get("email","")
+    price = sale.get("price",0)
+    if not email: return {"ok":False,"error":"no email"}
+    plan = "free"
+    if price>=2900: plan="unlimited"
+    elif price>=900: plan="pro"
+    conn=get_db()
+    u=conn.execute("SELECT id FROM users WHERE email=?",(email,)).fetchone()
+    pw=secrets.token_hex(8)
+    if u:
+        conn.execute("UPDATE users SET plan=? WHERE email=?",(plan,email))
+        conn.commit();conn.close()
+        return {"ok":True,"action":"upgraded","email":email,"plan":plan}
+    uid=secrets.token_hex(8)
+    conn.execute("INSERT INTO users(id,email,password_hash,plan) VALUES(?,?,?,?)",(uid,email,hash_password(pw),plan))
+    conn.execute("INSERT OR REPLACE INTO subscriptions(user_id,plan) VALUES(?,?)",(uid,plan))
+    conn.commit();conn.close()
+    sent=send_welcome(email,plan,pw)
+    print(f"[WEBHOOK] {email} plan={plan} emailed={sent}")
+    return {"ok":True,"action":"created","email":email,"plan":plan,"email_sent":sent}
+
+@app.get("/api/webhooks/gumroad/test")
+async def test_webhook(email: str="test@shu.edu.cn",price: int=900):
+    plan="free"
+    if price>=2900: plan="unlimited"
+    elif price>=900: plan="pro"
+    conn=get_db()
+    u=conn.execute("SELECT id FROM users WHERE email=?",(email,)).fetchone()
+    pw=secrets.token_hex(8)
+    if u: conn.execute("UPDATE users SET plan=? WHERE email=?",(plan,email)); conn.commit();conn.close()
+    else:
+        uid=secrets.token_hex(8)
+        conn.execute("INSERT INTO users(id,email,password_hash,plan) VALUES(?,?,?,?)",(uid,email,hash_password(pw),plan))
+        conn.execute("INSERT OR REPLACE INTO subscriptions(user_id,plan) VALUES(?,?)",(uid,plan))
+        conn.commit();conn.close()
+    sent=send_welcome(email,plan,pw)
+    return {"ok":True,"action":"upgraded" if u else "created","email":email,"plan":plan,"password":pw if not sent else "(emailed)","email_sent":sent}
+
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 os.makedirs(STATIC_DIR, exist_ok=True)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
