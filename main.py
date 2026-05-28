@@ -501,7 +501,7 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
 SMTP_CFG = {"host": os.environ.get("SMTP_HOST","smtp.qq.com"),
-            "port": int(os.environ.get("SMTP_PORT","587")),
+            "port": int(os.environ.get("SMTP_PORT","465")),
             "user": os.environ.get("SMTP_USER","542637706@qq.com"),
             "pw": os.environ.get("SMTP_PASSWORD","")}
 
@@ -518,8 +518,8 @@ def send_welcome(to_email: str, plan: str, pw: str) -> bool:
 <tr><td style="padding:8px;background:#1e293b;color:#e2e8f0;font-weight:bold">Email</td><td style="padding:8px">{to_email}</td></tr>
 <tr><td style="padding:8px;background:#1e293b;color:#e2e8f0;font-weight:bold">Password</td><td style="padding:8px"><code>{pw}</code></td></tr></table>
 <p style="color:#94a3b8;font-size:12px">Change your password after login. Reply for support.</p></body></html>""","html"))
-        with smtplib.SMTP(SMTP_CFG["host"],SMTP_CFG["port"],timeout=15) as s:
-            s.starttls(); s.login(SMTP_CFG["user"],SMTP_CFG["pw"]); s.sendmail(SMTP_CFG["user"],to_email,msg.as_string())
+        with smtplib.SMTP_SSL(SMTP_CFG["host"],SMTP_CFG["port"],timeout=15) as s:
+            s.login(SMTP_CFG["user"],SMTP_CFG["pw"]); s.sendmail(SMTP_CFG["user"],to_email,msg.as_string())
         print(f"[EMAIL] Sent to {to_email}"); return True
     except Exception as e: print(f"[EMAIL] Fail {to_email}: {e}"); return False
 
