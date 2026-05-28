@@ -223,7 +223,7 @@ async function loadChecks(){const r=await fetch(API+'/api/monitors/'+window._mid
 document.getElementById('checks').innerHTML=d.map(c=>`<tr><td>${c.status||'?'}</td><td>${c.ms||'?'}ms</td><td>${c.ssl_days!=null?c.ssl_days+'d':'?'}</td><td style="color:#fca5a5;font-size:.8rem">${(c.error||'').substring(0,60)}</td><td class="mono">${(c.at||'').substring(11,19)}</td></tr>`).join('');}
 async function addMonitor(){const url=document.getElementById('monUrl').value;const name=document.getElementById('monName').value;await fetch(API+'/api/monitors?url='+encodeURIComponent(url)+'&name='+encodeURIComponent(name)+'&user_id=demo',{method:'POST'});document.getElementById('monUrl').value='';document.getElementById('monName').value='';loadStats();}
 async function delMon(id){if(confirm('Delete?')){await fetch(API+'/api/monitors/'+id,{method:'DELETE'});loadStats();}}
-setInterval(loadStats,30000);setInterval(()=>{document.getElementById('clock').textContent=new Date().toLocaleTimeString()},1000);loadStats();
+setInterval(loadStats,15000);setInterval(()=>{if(window._mid)loadChecks()},10000);setInterval(()=>{document.getElementById('clock').textContent=new Date().toLocaleTimeString()},1000);loadStats();
 </script>
 </body>
 </html>""")
