@@ -515,10 +515,16 @@ def send_welcome(to_email: str, plan: str, pw: str) -> bool:
 <tr><td style="padding:8px;background:#1e293b;color:#e2e8f0;font-weight:bold">Email</td><td style="padding:8px">{to_email}</td></tr>
 <tr><td style="padding:8px;background:#1e293b;color:#e2e8f0;font-weight:bold">Password</td><td style="padding:8px"><code>{pw}</code></td></tr></table>
 <p style="color:#94a3b8;font-size:12px">Change your password after login. Reply for support.</p>"""}).encode()
-        req = urlreq.Request("https://api.resend.com/emails",data=body,
-            headers={"Authorization":f"Bearer {RESEND_KEY}","Content-Type":"application/json","User-Agent":"APIMonitor/2.0"})
-        ctx = ssl.create_default_context()
-        urlreq.urlopen(req,timeout=10,context=ctx)
+        import http.client
+        conn = http.client.HTTPSConnection("api.resend.com", timeout=10)
+        conn.request("POST", "/emails", body=body, headers={
+            "Authorization": f"Bearer {RESEND_KEY}",
+            "Content-Type": "application/json",
+            "User-Agent": "APIMonitor/2.0",
+        })
+        resp = conn.getresponse()
+        resp.read()
+        conn.close()
         print(f"[EMAIL] Sent to {to_email}"); return True, ""
     except Exception as e:
         err = str(e)[:200]
