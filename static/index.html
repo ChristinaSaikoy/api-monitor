@@ -83,33 +83,30 @@ select{background:rgba(0,0,0,0.4);border:1px solid var(--border);border-radius:2
 <h1>// API_MONITOR</h1>
 <div class="header-right">
 <span id="userInfo">SYS::OFFLINE</span>
-<button class="btn btn-ghost btn-sm" onclick="showLogin()" id="loginBtn">AUTH</button>
-<button class="btn btn-ghost btn-sm" onclick="showPwChange()" id="pwdBtn" style="display:none">PASSWD</button>
+<button class="btn btn-ghost btn-sm" onclick="showLogin()" id="loginBtn">LOGIN</button>
+<button class="btn btn-ghost btn-sm" onclick="showPwChange()" id="pwdBtn" style="display:none">Change Password</button>
 <button class="btn btn-ghost btn-sm" onclick="logout()" id="logoutBtn" style="display:none">EXIT</button>
 </div>
 </div>
 
 <div class="modal-overlay" id="authBox">
-<div class="modal">
-<h2>// AUTHENTICATE</h2>
-<input id="loginEmail" placeholder="EMAIL" type="email">
-<input id="loginPass" placeholder="PASSPHRASE" type="password" onkeydown="if(event.key==='Enter')doLogin()">
+<div class="modal" id="loginPanel">
+<h2>// LOGIN</h2>
+<input id="loginEmail" placeholder="Email" type="email">
+<input id="loginPass" placeholder="Password" type="password" onkeydown="if(event.key==='Enter')doLogin()">
 <div id="loginError">ACCESS DENIED</div>
-<button class="btn btn-primary" onclick="doLogin()">CONNECT</button>
-<button class="btn btn-ghost" style="margin-top:6px" onclick="hideLogin()">CANCEL</button>
+<button class="btn btn-primary" onclick="doLogin()">Sign In</button>
+<button class="btn btn-ghost" style="margin-top:6px" onclick="hideLogin()">Cancel</button>
 </div>
-</div>
-
-<div class="modal-overlay" id="pwdBox">
-<div class="modal">
-<h2>// CHANGE_PASSPHRASE</h2>
-<input id="oldPass" placeholder="CURRENT PASSPHRASE" type="password">
-<input id="newPass" placeholder="NEW PASSPHRASE" type="password">
-<input id="newPass2" placeholder="CONFIRM NEW" type="password">
+<div class="modal" id="pwdPanel" style="display:none">
+<h2>// CHANGE PASSWORD</h2>
+<input id="oldPass" placeholder="Current Password" type="password">
+<input id="newPass" placeholder="New Password" type="password">
+<input id="newPass2" placeholder="Confirm New Password" type="password">
 <div id="pwdError" style="color:var(--red);font-size:.8rem;display:none;font-family:'Share Tech Mono',monospace;margin-top:4px"></div>
 <div id="pwdOk" style="color:var(--green);font-size:.8rem;display:none;font-family:'Share Tech Mono',monospace;margin-top:4px"></div>
-<button class="btn btn-primary" onclick="doPwChange()">UPDATE</button>
-<button class="btn btn-ghost" style="margin-top:6px" onclick="hidePwChange()">CANCEL</button>
+<button class="btn btn-primary" onclick="doPwChange()">Update Password</button>
+<button class="btn btn-ghost" style="margin-top:6px" onclick="hidePwChange()">Cancel</button>
 </div>
 </div>
 
@@ -149,7 +146,7 @@ select{background:rgba(0,0,0,0.4);border:1px solid var(--border);border-radius:2
 <select id="newUserPlan"><option value="free">FREE</option><option value="pro">PRO</option><option value="unlimited">UNLIMITED</option></select>
 <button class="btn btn-primary btn-sm" onclick="adminCreateUser()">CREATE</button>
 </div>
-<table><thead><tr><th>EMAIL</th><th>TIER</th><th>ROOT</th><th>ACTIVE</th><th>LAST_AUTH</th><th></th></tr></thead>
+<table><thead><tr><th>EMAIL</th><th>TIER</th><th>ROOT</th><th>ACTIVE</th><th>LAST_LOGIN</th><th></th></tr></thead>
 <tbody id="adminUsers"></tbody></table>
 </div>
 </div>
@@ -203,10 +200,10 @@ async function addMonitor(){var url=document.getElementById('monUrl').value;if(!
 await fetch('/api/monitors',{method:'POST',headers:H(),body:JSON.stringify({url:url,name:name})});
 document.getElementById('monUrl').value='';document.getElementById('monName').value='';loadStats();}
 async function delMon(id){if(confirm('CONFIRM DELETE?')){await fetch('/api/monitors/'+id,{method:'DELETE',headers:H()});loadStats();}}
-function showLogin(){document.getElementById('authBox').style.display='flex';}
+function showLogin(){document.getElementById('loginPanel').style.display='block';document.getElementById('pwdPanel').style.display='none';document.getElementById('authBox').style.display='flex';}
 function hideLogin(){document.getElementById('authBox').style.display='none';}
-function showPwChange(){document.getElementById('pwdBox').style.display='flex';}
-function hidePwChange(){document.getElementById('pwdBox').style.display='none';document.getElementById('pwdError').style.display='none';document.getElementById('pwdOk').style.display='none';}
+function showPwChange(){document.getElementById('pwdPanel').style.display='block';document.getElementById('loginPanel').style.display='none';document.getElementById('authBox').style.display='flex';}
+function hidePwChange(){document.getElementById('authBox').style.display='none';document.getElementById('pwdError').style.display='none';document.getElementById('pwdOk').style.display='none';}
 async function doPwChange(){
 var op=document.getElementById('oldPass').value;var np=document.getElementById('newPass').value;var np2=document.getElementById('newPass2').value;
 if(np!==np2){document.getElementById('pwdError').style.display='block';document.getElementById('pwdError').textContent='PASSPHRASES DO NOT MATCH';return}
