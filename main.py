@@ -1,43 +1,203 @@
 #!/usr/bin/env python3
-"""API Monitor — Full SaaS: auto-checks, response time tracking, SSL alerts."""
-from fastapi import FastAPI, Query
+"""
+API Monitor v2.0 — Full SaaS
+Patterns borrowed from: healthchecks (auth/tiers), uptime-kuma (dash),
+                         gatus (alerting), Django (security)
+"""
+from fastapi import FastAPI, HTTPException, Request, Depends, Query, Header
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from contextlib import asynccontextmanager
-import asyncio, sqlite3, os, json, time, socket, ssl
+from pydantic import BaseModel, EmailStr
 from datetime import datetime, timedelta
-from urllib.request import Request, urlopen
+from typing import Optional, Annotated
+import asyncio, sqlite3, os, json, time, socket, ssl, hashlib, hmac, secrets
+import urllib.request as urlreq
 from urllib.error import URLError
+from pathlib import Path
 
+# ─── Config ───────────────────────────────────────────────────
+SECRET_KEY = os.environ.get("SECRET_KEY", secrets.token_hex(32))
+ADMIN_EMAIL = "542637706@shu.edu.cn"
 DB = os.path.join(os.path.dirname(os.path.abspath(__file__)), "monitors.db")
 
-def init_db():
+PLANS = {
+    "free":    {"monitors": 3,  "interval": 60,  "history_days": 7,   "export": False},
+    "pro":     {"monitors": 50, "interval": 60,  "history_days": 30,  "export": True},
+    "unlimited":{"monitors": 99999, "interval": 30, "history_days": 365, "export": True},
+}
+
+# ═══════════ DB Layer ═════════════════════════════════════════
+def get_db():
     conn = sqlite3.connect(DB)
-    conn.execute("""CREATE TABLE IF NOT EXISTS monitors (
-        id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT DEFAULT 'demo',
-        url TEXT NOT NULL, name TEXT, check_interval INTEGER DEFAULT 60,
-        created_at TEXT DEFAULT (datetime('now')))""")
-    conn.execute("""CREATE TABLE IF NOT EXISTS checks (
-        id INTEGER PRIMARY KEY AUTOINCREMENT, monitor_id INTEGER NOT NULL,
-        status_code INTEGER, response_ms REAL, error TEXT, ssl_days_left INTEGER,
-        checked_at TEXT DEFAULT (datetime('now')),
-        FOREIGN KEY (monitor_id) REFERENCES monitors(id))""")
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA foreign_keys=ON")
+    return conn
+
+def init_db():
+    conn = get_db()
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS users (
+            id TEXT PRIMARY KEY,
+            email TEXT UNIQUE NOT NULL,
+            password_hash TEXT NOT NULL,
+            plan TEXT DEFAULT 'free',
+            api_key TEXT UNIQUE,
+            is_admin INTEGER DEFAULT 0,
+            is_active INTEGER DEFAULT 1,
+            created_at TEXT DEFAULT (datetime('now')),
+            last_login TEXT
+        );
+        CREATE TABLE IF NOT EXISTS monitors (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id TEXT NOT NULL,
+            url TEXT NOT NULL,
+            name TEXT,
+            check_interval INTEGER DEFAULT 60,
+            created_at TEXT DEFAULT (datetime('now')),
+            FOREIGN KEY (user_id) REFERENCES users(id)
+        );
+        CREATE TABLE IF NOT EXISTS checks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            monitor_id INTEGER NOT NULL,
+            status_code INTEGER,
+            response_ms REAL,
+            error TEXT,
+            ssl_days_left INTEGER,
+            checked_at TEXT DEFAULT (datetime('now')),
+            FOREIGN KEY (monitor_id) REFERENCES monitors(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_checks_monitor ON checks(monitor_id, checked_at);
+        CREATE INDEX IF NOT EXISTS idx_monitors_user ON monitors(user_id);
+        CREATE TABLE IF NOT EXISTS rate_limits (
+            key TEXT PRIMARY KEY,
+            tokens REAL DEFAULT 60,
+            last_refill TEXT DEFAULT (datetime('now'))
+        );
+        CREATE TABLE IF NOT EXISTS subscriptions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id TEXT UNIQUE NOT NULL,
+            stripe_customer_id TEXT,
+            stripe_subscription_id TEXT,
+            plan TEXT DEFAULT 'free',
+            next_billing TEXT,
+            created_at TEXT DEFAULT (datetime('now')),
+            FOREIGN KEY (user_id) REFERENCES users(id)
+        );
+    """)
+    # Create admin account if not exists
+    admin = conn.execute("SELECT id FROM users WHERE email = ?", (ADMIN_EMAIL,)).fetchone()
+    if not admin:
+        conn.execute("INSERT INTO users (id, email, password_hash, plan, is_admin) VALUES (?,?,?,?,?)",
+                     ("admin", ADMIN_EMAIL, hash_password(SECRET_KEY), "unlimited", 1))
     conn.commit()
     conn.close()
 
+def hash_password(pw: str) -> str:
+    salt = SECRET_KEY[:16]
+    return hashlib.pbkdf2_hmac('sha256', pw.encode(), salt.encode(), 100000).hex()
+
+def verify_password(pw: str, hash_val: str) -> bool:
+    return hmac.compare_digest(hash_password(pw), hash_val)
+
+# ═══════════ JWT Auth ════════════════════════════════════════
+import base64
+
+def create_jwt(user_id: str, is_admin: bool, expire_days: int = 1) -> str:
+    header = base64.urlsafe_b64encode(json.dumps({"alg":"HS256","typ":"JWT"}).encode()).decode().rstrip("=")
+    now = int(time.time())
+    payload = base64.urlsafe_b64encode(json.dumps({
+        "sub": user_id, "admin": is_admin, "iat": now,
+        "exp": now + expire_days * 86400
+    }).encode()).decode().rstrip("=")
+    sig = hmac.new(SECRET_KEY.encode(), f"{header}.{payload}".encode(), hashlib.sha256).hexdigest()
+    return f"{header}.{payload}.{sig}"
+
+def verify_jwt(token: str) -> dict | None:
+    try:
+        parts = token.split(".")
+        if len(parts) != 3: return None
+        header, payload, sig = parts
+        expected = hmac.new(SECRET_KEY.encode(), f"{header}.{payload}".encode(), hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(sig, expected): return None
+        # Fix padding
+        payload += "=" * (4 - len(payload) % 4)
+        data = json.loads(base64.urlsafe_b64decode(payload))
+        if data.get("exp", 0) < time.time(): return None
+        return data
+    except Exception:
+        return None
+
+security = HTTPBearer(auto_error=False)
+
+async def get_current_user(credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(security)]) -> dict:
+    if not credentials: raise HTTPException(401, "Missing token")
+    token_data = verify_jwt(credentials.credentials)
+    if not token_data: raise HTTPException(401, "Invalid or expired token")
+    conn = get_db()
+    user = conn.execute("SELECT id, email, plan, is_admin, is_active FROM users WHERE id=?", (token_data["sub"],)).fetchone()
+    conn.close()
+    if not user or not user["is_active"]: raise HTTPException(401, "Account inactive or deleted")
+    return {"id": user["id"], "email": user["email"], "plan": user["plan"],
+            "is_admin": bool(user["is_admin"])}
+
+async def require_admin(user: dict = Depends(get_current_user)) -> dict:
+    if not user["is_admin"]: raise HTTPException(403, "Admin only")
+    return user
+
+# ═══════════ Rate Limiting (TokenBucket from healthchecks) ════
+def check_rate_limit(key: str, max_rps: int = 30) -> bool:
+    conn = get_db()
+    row = conn.execute("SELECT tokens, last_refill FROM rate_limits WHERE key=?", (key,)).fetchone()
+    now = datetime.now()
+    if row:
+        elapsed = (now - datetime.fromisoformat(row["last_refill"])).total_seconds()
+        tokens = min(max_rps, row["tokens"] + elapsed * (max_rps / 60))
+    else:
+        tokens = max_rps
+    if tokens < 1:
+        conn.close()
+        return False
+    conn.execute("INSERT OR REPLACE INTO rate_limits (key, tokens, last_refill) VALUES (?,?,?)",
+                 (key, tokens - 1, now.isoformat()))
+    conn.commit()
+    conn.close()
+    return True
+
+# ═══════════ Data Cleanup ═══════════════════════════════════
+async def cleanup_old_checks():
+    while True:
+        try:
+            conn = get_db()
+            for plan, cfg in PLANS.items():
+                cutoff = (datetime.now() - timedelta(days=cfg["history_days"])).isoformat()
+                conn.execute("""
+                    DELETE FROM checks WHERE monitor_id IN (
+                        SELECT id FROM monitors WHERE user_id IN (
+                            SELECT id FROM users WHERE plan=?
+                        )
+                    ) AND checked_at < ?
+                """, (plan, cutoff))
+            conn.commit()
+            conn.close()
+        except Exception:
+            pass
+        await asyncio.sleep(3600)  # hourly cleanup
+
+# ═══════════ Monitor Engine ══════════════════════════════════
 async def check_one(url: str) -> dict:
     result = {"status": 0, "ms": 0, "error": None, "ssl_days": None}
     start = time.time()
     try:
-        req = Request(url, headers={"User-Agent": "APIMonitor/1.0"})
-        resp = urlopen(req, timeout=15)
+        req = urlreq.Request(url, headers={"User-Agent": "APIMonitor/2.0"})
+        resp = urlreq.urlopen(req, timeout=15)
         result["status"] = resp.status
         result["ms"] = round((time.time() - start) * 1000, 1)
-    except URLError as e:
-        result["error"] = str(e.reason)[:200] if e.reason else str(e)[:200]
     except Exception as e:
         result["error"] = str(e)[:200]
-    # SSL cert check
+    # SSL check
     if url.startswith("https://"):
         try:
             host = url.split("/")[2].split(":")[0]
@@ -52,181 +212,254 @@ async def check_one(url: str) -> dict:
     return result
 
 async def check_all_monitors():
-    conn = sqlite3.connect(DB)
-    monitors = conn.execute("SELECT id, url FROM monitors").fetchall()
-    for mid, url in monitors:
-        r = await check_one(url)
+    conn = get_db()
+    monitors = conn.execute("SELECT m.id, m.url, u.plan FROM monitors m JOIN users u ON m.user_id=u.id WHERE u.is_active=1").fetchall()
+    for m in monitors:
+        r = await check_one(m["url"])
         conn.execute("INSERT INTO checks (monitor_id,status_code,response_ms,error,ssl_days_left) VALUES (?,?,?,?,?)",
-                     (mid, r["status"], r["ms"], r["error"], r["ssl_days"]))
+                     (m["id"], r["status"], r["ms"], r["error"], r["ssl_days"]))
     conn.commit()
     conn.close()
 
 async def monitor_loop():
+    await asyncio.sleep(5)
     while True:
-        try:
-            await check_all_monitors()
-        except Exception:
-            pass
-        await asyncio.sleep(60)
+        try: await check_all_monitors()
+        except Exception: pass
+        await asyncio.sleep(30)
 
+# ═══════════ App Lifecycle ═════════════════════════════════
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
-    task = asyncio.create_task(monitor_loop())
+    task1 = asyncio.create_task(monitor_loop())
+    task2 = asyncio.create_task(cleanup_old_checks())
     yield
-    task.cancel()
+    task1.cancel(); task2.cancel()
 
-app = FastAPI(title="API Monitor", version="1.1.0", lifespan=lifespan)
+app = FastAPI(title="API Monitor", version="2.0.0", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
-@app.get("/api/health")
-def health():
-    conn = sqlite3.connect(DB)
-    m = conn.execute("SELECT COUNT(*) FROM monitors").fetchone()[0]
-    c = conn.execute("SELECT COUNT(*) FROM checks").fetchone()[0]
+# ═══════════ Auth Endpoints ════════════════════════════════
+@app.post("/api/auth/register")
+async def register(req: Request):
+    if not check_rate_limit("register:" + (req.client.host if req.client else "unknown"), 5):
+        raise HTTPException(429, "Too many attempts")
+    body = await req.json()
+    email = body.get("email","").strip()
+    password = body.get("password","")
+    # Only admin can create accounts
+    auth = req.headers.get("Authorization","")
+    if auth.startswith("Bearer "):
+        token_data = verify_jwt(auth[7:])
+        if not token_data or not token_data.get("admin"):
+            raise HTTPException(403, "Only admin can create accounts")
+    else:
+        raise HTTPException(403, "Admin auth required for registration")
+    if len(password) < 8: raise HTTPException(400, "Password min 8 chars")
+    conn = get_db()
+    exists = conn.execute("SELECT id FROM users WHERE email=?", (email,)).fetchone()
+    if exists: conn.close(); raise HTTPException(409, "Email already registered")
+    uid = secrets.token_hex(8)
+    conn.execute("INSERT INTO users (id, email, password_hash, plan) VALUES (?,?,?,?)",
+                 (uid, email, hash_password(password), "free"))
+    conn.commit(); conn.close()
+    return {"user_id": uid, "email": email, "plan": "free"}
+
+class LoginBody(BaseModel):
+    email: str
+    password: str
+    remember_me: bool = False
+
+@app.post("/api/auth/login")
+async def login(body: LoginBody, req: Request):
+    if not check_rate_limit("login:" + (req.client.host if req.client else "unknown"), 10):
+        raise HTTPException(429, "Too many attempts")
+    conn = get_db()
+    user = conn.execute("SELECT * FROM users WHERE email=? AND is_active=1", (body.email,)).fetchone()
     conn.close()
-    return {"status": "ok", "version": "1.1.0", "monitors": m, "checks": c}
+    if not user or not verify_password(body.password, user["password_hash"]):
+        raise HTTPException(401, "Invalid credentials")
+    conn = get_db()
+    conn.execute("UPDATE users SET last_login=datetime('now') WHERE id=?", (user["id"],))
+    conn.commit(); conn.close()
+    expire = 7 if body.remember_me else 1
+    token = create_jwt(user["id"], bool(user["is_admin"]), expire)
+    return {"token": token, "user": {"id": user["id"], "email": user["email"],
+            "plan": user["plan"], "is_admin": bool(user["is_admin"])}}
+
+@app.get("/api/auth/me")
+async def me(user: dict = Depends(get_current_user)):
+    plan_cfg = PLANS.get(user["plan"], PLANS["free"])
+    conn = get_db()
+    m_count = conn.execute("SELECT COUNT(*) FROM monitors WHERE user_id=?", (user["id"],)).fetchone()[0]
+    conn.close()
+    return {**user, "monitors_used": m_count, "monitors_limit": plan_cfg["monitors"],
+            "checks_interval": plan_cfg["interval"], "history_days": plan_cfg["history_days"]}
+
+# ═══════════ Monitor Endpoints (per-user) ══════════════════
+@app.get("/api/monitors")
+async def list_monitors(user: dict = Depends(get_current_user)):
+    rows = get_db().execute(
+        "SELECT id,url,name,created_at FROM monitors WHERE user_id=? ORDER BY id DESC", (user["id"],)).fetchall()
+    return [dict(r) for r in rows]
 
 @app.post("/api/monitors")
-def create_monitor(url: str, name: str = "", user_id: str = "demo"):
-    conn = sqlite3.connect(DB)
-    cur = conn.execute("INSERT INTO monitors (user_id,url,name) VALUES (?,?,?)", (user_id, url, name))
+async def create_monitor(req: Request, user: dict = Depends(get_current_user)):
+    if not check_rate_limit(f"monitor:{user['id']}", 20):
+        raise HTTPException(429, "Rate limit exceeded")
+    body = await req.json()
+    url = body.get("url","").strip()
+    name = body.get("name","")
+    if not url.startswith("http"): raise HTTPException(400, "Invalid URL")
+    conn = get_db()
+    count = conn.execute("SELECT COUNT(*) FROM monitors WHERE user_id=?", (user["id"],)).fetchone()[0]
+    limit = PLANS[user["plan"]]["monitors"]
+    if count >= limit: conn.close(); raise HTTPException(403, f"Plan limit: {limit} monitors. Upgrade to add more.")
+    cur = conn.execute("INSERT INTO monitors (user_id,url,name) VALUES (?,?,?)", (user["id"], url, name))
     mid = cur.lastrowid
-    conn.commit()
-    conn.close()
+    conn.commit(); conn.close()
     return {"id": mid, "url": url, "name": name}
 
-@app.get("/api/monitors")
-def list_monitors(user_id: str = "demo"):
-    rows = sqlite3.connect(DB).execute(
-        "SELECT id,url,name,created_at FROM monitors WHERE user_id=? ORDER BY id DESC", (user_id,)).fetchall()
-    return [{"id": r[0], "url": r[1], "name": r[2], "created": r[3]} for r in rows]
-
 @app.delete("/api/monitors/{mid}")
-def delete_monitor(mid: int):
-    conn = sqlite3.connect(DB)
+async def delete_monitor(mid: int, user: dict = Depends(get_current_user)):
+    conn = get_db()
+    owner = conn.execute("SELECT user_id FROM monitors WHERE id=?", (mid,)).fetchone()
+    if not owner or owner["user_id"] != user["id"]:
+        conn.close(); raise HTTPException(403, "Not your monitor")
     conn.execute("DELETE FROM monitors WHERE id=?", (mid,))
-    conn.execute("DELETE FROM checks WHERE monitor_id=?", (mid,))
-    conn.commit()
-    conn.close()
+    conn.commit(); conn.close()
     return {"ok": True}
 
 @app.get("/api/monitors/{mid}/checks")
-def get_checks(mid: int, limit: int = 20):
-    rows = sqlite3.connect(DB).execute(
+async def get_checks(mid: int, limit: int = 30, user: dict = Depends(get_current_user)):
+    conn = get_db()
+    owner = conn.execute("SELECT user_id FROM monitors WHERE id=?", (mid,)).fetchone()
+    if not owner or owner["user_id"] != user["id"]: conn.close(); raise HTTPException(403, "Not your monitor")
+    rows = conn.execute(
         "SELECT status_code,response_ms,error,ssl_days_left,checked_at FROM checks WHERE monitor_id=? ORDER BY id DESC LIMIT ?",
         (mid, limit)).fetchall()
+    conn.close()
     return [{"status": r[0], "ms": r[1], "error": r[2], "ssl_days": r[3], "at": r[4]} for r in rows]
 
 @app.get("/api/stats")
-def get_stats(user_id: str = "demo"):
-    conn = sqlite3.connect(DB)
-    monitors = conn.execute("SELECT id,url,name FROM monitors WHERE user_id=?", (user_id,)).fetchall()
+async def get_stats(user: dict = Depends(get_current_user)):
+    conn = get_db()
+    monitors = conn.execute("SELECT id,url,name FROM monitors WHERE user_id=?", (user["id"],)).fetchall()
     result = []
     for m in monitors:
-        avg = conn.execute("SELECT AVG(response_ms) FROM checks WHERE monitor_id=? AND response_ms>0 AND checked_at >= datetime('now','-1 day')", (m[0],)).fetchone()
-        last = conn.execute("SELECT status_code,checked_at FROM checks WHERE monitor_id=? ORDER BY id DESC LIMIT 1", (m[0],)).fetchone()
-        ssl_min = conn.execute("SELECT MIN(ssl_days_left) FROM checks WHERE monitor_id=? AND ssl_days_left IS NOT NULL AND checked_at >= datetime('now','-1 day')", (m[0],)).fetchone()
-        result.append({
-            "id": m[0], "url": m[1], "name": m[2],
-            "avg_ms": round(avg[0], 1) if avg and avg[0] else None,
-            "last_status": last[0] if last else None,
-            "last_checked": last[1] if last else None,
-            "ssl_days": ssl_min[0] if ssl_min and ssl_min[0] else None,
-        })
+        avg = conn.execute("SELECT AVG(response_ms) FROM checks WHERE monitor_id=? AND response_ms>0 AND checked_at >= datetime('now','-1 day')", (m["id"],)).fetchone()
+        last = conn.execute("SELECT status_code,checked_at FROM checks WHERE monitor_id=? ORDER BY id DESC LIMIT 1", (m["id"],)).fetchone()
+        ssl_min = conn.execute("SELECT MIN(ssl_days_left) FROM checks WHERE monitor_id=? AND ssl_days_left IS NOT NULL AND checked_at >= datetime('now','-1 day')", (m["id"],)).fetchone()
+        result.append({"id": m["id"], "url": m["url"], "name": m["name"],
+            "avg_ms": round(avg[0],1) if avg and avg[0] else None,
+            "last_status": last[0] if last else None, "last_checked": last[1] if last else None,
+            "ssl_days": ssl_min[0] if ssl_min and ssl_min[0] else None})
     conn.close()
     return result
 
-@app.get("/")
-def dashboard():
-    return HTMLResponse("""<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>API Monitor</title>
-<style>
-*{margin:0;padding:0;box-sizing:border-box}
-body{font-family:-apple-system,system-ui,sans-serif;background:#0f172a;color:#e2e8f0;min-height:100vh}
-.header{background:#1e293b;padding:14px 24px;border-bottom:1px solid #334155;display:flex;justify-content:space-between;align-items:center}
-.header h1{font-size:1.2rem;color:#38bdf8}
-.container{max-width:1024px;margin:0 auto;padding:20px}
-.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:20px}
-.stat{background:#1e293b;border-radius:10px;padding:16px;text-align:center}
-.stat .num{font-size:1.8rem;font-weight:700;color:#38bdf8}
-.stat .lbl{font-size:.8rem;color:#94a3b8;margin-top:2px}
-.card{background:#1e293b;border-radius:10px;padding:20px;margin-bottom:16px}
-.card h2{font-size:1.05rem;margin-bottom:12px;color:#38bdf8;border-bottom:1px solid #334155;padding-bottom:8px}
-.add-form{display:flex;gap:8px}
-.add-form input{flex:1;padding:10px;background:#0f172a;border:1px solid #334155;border-radius:8px;color:#e2e8f0}
-.add-form input:focus{border-color:#38bdf8;outline:none}
-.btn{padding:10px 18px;background:#38bdf8;color:#0f172a;border:none;border-radius:8px;font-weight:600;cursor:pointer;white-space:nowrap}
-.btn:hover{opacity:.85}
-.btn-sm{padding:5px 12px;font-size:.8rem}
-.btn-danger{background:#ef4444;color:#fff}
-.status-up{color:#6ee7b7}.status-down{color:#fca5a5}.status-warn{color:#fde047}
-table{width:100%;border-collapse:collapse;font-size:.9rem}
-th,td{padding:10px 12px;text-align:left;border-bottom:1px solid #334155}
-th{color:#94a3b8;font-size:.8rem}.mono{font-family:monospace;font-size:.85rem}
-tr:hover{background:#0f172a}
-.chart-bar{display:inline-block;height:20px;border-radius:3px;min-width:2px}
-.tabs{display:flex;gap:4px;margin-bottom:12px}
-.tab{padding:6px 14px;border-radius:6px;cursor:pointer;font-size:.85rem;background:#0f172a;color:#94a3b8}
-.tab.active{background:#38bdf8;color:#0f172a}
-</style>
-</head>
-<body>
-<div class="header"><h1>API Monitor</h1><span id="clock" style="color:#94a3b8;font-size:.85rem"></span></div>
-<div class="container">
-<div class="stats">
-<div class="stat"><div class="num" id="monCount">-</div><div class="lbl">Monitors</div></div>
-<div class="stat"><div class="num" id="upCount">-</div><div class="lbl">Up</div></div>
-<div class="stat"><div class="num" id="downCount">-</div><div class="lbl">Down</div></div>
-<div class="stat"><div class="num" id="avgAll">-</div><div class="lbl">Avg ms</div></div>
-</div>
-<div class="card">
-<h2>Add Monitor</h2>
-<div class="add-form">
-<input id="monUrl" placeholder="https://your-api.com/health">
-<input id="monName" placeholder="Name (optional)" style="max-width:180px">
-<button class="btn" onclick="addMonitor()">Add</button>
-</div>
-</div>
-<div class="card">
-<h2>Monitors</h2>
-<table><thead><tr><th>Name</th><th>URL</th><th>Status</th><th>Avg ms</th><th>SSL Days</th><th>Last</th><th></th></tr></thead>
-<tbody id="monitors"></tbody></table>
-</div>
-<div class="card" id="detailCard" style="display:none">
-<h2>History — <span id="detailName"></span></h2>
-<div class="tabs" id="tabs" style="display:none"><button class="tab active" onclick="loadChecks()">Raw</button></div>
-<table><thead><tr><th>Status</th><th>ms</th><th>SSL</th><th>Error</th><th>Time</th></tr></thead>
-<tbody id="checks"></tbody></table>
-</div>
-</div>
-<script>
-const API='';
-async function loadStats(){const r=await fetch(API+'/api/stats');const d=await r.json();
-document.getElementById('monCount').textContent=d.length;
-const up=d.filter(m=>m.last_status&&m.last_status<400).length;
-const down=d.filter(m=>m.last_status&&m.last_status>=400||m.last_status===0).length;
-document.getElementById('upCount').textContent=up;
-document.getElementById('downCount').textContent=down;
-const avgs=d.filter(m=>m.avg_ms).map(m=>m.avg_ms);
-document.getElementById('avgAll').textContent=avgs.length?Math.round(avgs.reduce((a,b)=>a+b)/avgs.length)+'ms':'n/a';
-const tbody=document.getElementById('monitors');
-tbody.innerHTML=d.map(m=>{
-let s=m.last_status?m.last_status<400?'<span class="status-up">UP '+m.last_status+'</span>':'<span class="status-down">'+m.last_status+'</span>':'<span class="status-down">DOWN</span>';
-let ssl=m.ssl_days!=null?m.ssl_days<0?'<span class="status-down">EXP</span>':m.ssl_days<14?'<span class="status-warn">'+m.ssl_days+'d</span>':'<span class="status-up">'+m.ssl_days+'d</span>':'?';
-return `<tr onclick="showDetail(${m.id},'${(m.name||m.url).replace(/'/g,"&#39;")}')" style="cursor:pointer"><td>${m.name||'-'}</td><td class="mono">${m.url.substring(0,50)}</td><td>${s}</td><td>${m.avg_ms||'?'}ms</td><td>${ssl}</td><td class="mono">${(m.last_checked||'').substring(11,19)||'?'}</td><td><button class="btn btn-sm btn-danger" onclick="event.stopPropagation();delMon(${m.id})">X</button></td></tr>`}).join('');}
-async function showDetail(id,name){document.getElementById('detailCard').style.display='block';document.getElementById('detailName').textContent=name;window._mid=id;loadChecks();}
-async function loadChecks(){const r=await fetch(API+'/api/monitors/'+window._mid+'/checks?limit=30');const d=await r.json();
-document.getElementById('checks').innerHTML=d.map(c=>`<tr><td>${c.status||'?'}</td><td>${c.ms||'?'}ms</td><td>${c.ssl_days!=null?c.ssl_days+'d':'?'}</td><td style="color:#fca5a5;font-size:.8rem">${(c.error||'').substring(0,60)}</td><td class="mono">${(c.at||'').substring(11,19)}</td></tr>`).join('');}
-async function addMonitor(){const url=document.getElementById('monUrl').value;const name=document.getElementById('monName').value;await fetch(API+'/api/monitors?url='+encodeURIComponent(url)+'&name='+encodeURIComponent(name)+'&user_id=demo',{method:'POST'});document.getElementById('monUrl').value='';document.getElementById('monName').value='';loadStats();}
-async function delMon(id){if(confirm('Delete?')){await fetch(API+'/api/monitors/'+id,{method:'DELETE'});loadStats();}}
-setInterval(loadStats,15000);setInterval(()=>{if(window._mid)loadChecks()},10000);setInterval(()=>{document.getElementById('clock').textContent=new Date().toLocaleTimeString()},1000);loadStats();
-</script>
-</body>
-</html>""")
+# ═══════════ Admin Endpoints ═══════════════════════════════
+@app.get("/api/admin/users")
+async def admin_users(user: dict = Depends(require_admin)):
+    rows = get_db().execute("SELECT id,email,plan,is_admin,is_active,created_at,last_login FROM users ORDER BY created_at DESC").fetchall()
+    return [dict(r) for r in rows]
+
+@app.post("/api/admin/users")
+async def admin_create_user(req: Request, user: dict = Depends(require_admin)):
+    body = await req.json()
+    email = body.get("email","").strip()
+    plan = body.get("plan","free")
+    if plan not in PLANS: raise HTTPException(400, f"Invalid plan: {plan}")
+    conn = get_db()
+    exists = conn.execute("SELECT id FROM users WHERE email=?", (email,)).fetchone()
+    if exists: conn.close(); raise HTTPException(409, "Email exists")
+    uid = secrets.token_hex(8)
+    temp_pw = secrets.token_hex(12)
+    conn.execute("INSERT INTO users (id, email, password_hash, plan) VALUES (?,?,?,?)",
+                 (uid, email, hash_password(temp_pw), plan))
+    conn.commit(); conn.close()
+    return {"user_id": uid, "email": email, "plan": plan, "temp_password": temp_pw}
+
+@app.put("/api/admin/users/{uid}")
+async def admin_update_user(uid: str, req: Request, user: dict = Depends(require_admin)):
+    body = await req.json()
+    conn = get_db()
+    target = conn.execute("SELECT id FROM users WHERE id=?", (uid,)).fetchone()
+    if not target: conn.close(); raise HTTPException(404, "User not found")
+    if "plan" in body:
+        if body["plan"] not in PLANS: conn.close(); raise HTTPException(400, "Invalid plan")
+        conn.execute("UPDATE users SET plan=? WHERE id=?", (body["plan"], uid))
+        conn.execute("UPDATE subscriptions SET plan=? WHERE user_id=?", (body["plan"], uid))
+    if "is_active" in body:
+        conn.execute("UPDATE users SET is_active=? WHERE id=?", (1 if body["is_active"] else 0, uid))
+    conn.commit(); conn.close()
+    return {"ok": True}
+
+@app.delete("/api/admin/users/{uid}")
+async def admin_delete_user(uid: str, user: dict = Depends(require_admin)):
+    if uid == user["id"]: raise HTTPException(400, "Cannot delete yourself")
+    conn = get_db()
+    conn.execute("DELETE FROM checks WHERE monitor_id IN (SELECT id FROM monitors WHERE user_id=?)", (uid,))
+    conn.execute("DELETE FROM monitors WHERE user_id=?", (uid,))
+    conn.execute("DELETE FROM users WHERE id=?", (uid,))
+    conn.commit(); conn.close()
+    return {"ok": True}
+
+@app.get("/api/admin/stats")
+async def admin_stats(user: dict = Depends(require_admin)):
+    conn = get_db()
+    return {
+        "total_users": conn.execute("SELECT COUNT(*) FROM users").fetchone()[0],
+        "total_monitors": conn.execute("SELECT COUNT(*) FROM monitors").fetchone()[0],
+        "total_checks": conn.execute("SELECT COUNT(*) FROM checks").fetchone()[0],
+        "by_plan": {p: conn.execute("SELECT COUNT(*) FROM users WHERE plan=?", (p,)).fetchone()[0] for p in PLANS},
+    }
+
+# ═══════════ Data Export ══════════════════════════════════
+@app.get("/api/export/monitors")
+async def export_monitors(user: dict = Depends(get_current_user)):
+    if not PLANS[user["plan"]]["export"]: raise HTTPException(403, "Export requires Pro or Unlimited plan")
+    conn = get_db()
+    monitors = conn.execute("SELECT * FROM monitors WHERE user_id=?", (user["id"],)).fetchall()
+    checks = conn.execute("""SELECT c.* FROM checks c JOIN monitors m ON c.monitor_id=m.id
+        WHERE m.user_id=? ORDER BY c.id DESC LIMIT 10000""", (user["id"],)).fetchall()
+    conn.close()
+    return {"monitors": [dict(r) for r in monitors], "checks": [dict(r) for r in checks]}
+
+@app.get("/api/export/checks_csv")
+async def export_checks_csv(mid: int, user: dict = Depends(get_current_user)):
+    if not PLANS[user["plan"]]["export"]: raise HTTPException(403, "Upgrade required")
+    conn = get_db()
+    owner = conn.execute("SELECT user_id FROM monitors WHERE id=?", (mid,)).fetchone()
+    if not owner or owner["user_id"] != user["id"]: conn.close(); raise HTTPException(403, "Not your monitor")
+    rows = conn.execute("SELECT * FROM checks WHERE monitor_id=? ORDER BY id DESC LIMIT 5000", (mid,)).fetchall()
+    conn.close()
+    csv = "id,status_code,response_ms,error,ssl_days_left,checked_at\n"
+    csv += "\n".join(f"{r[0]},{r[2]},{r[3]},\"{r[4] or ''}\",{r[5] or ''},{r[6]}" for r in rows)
+    return Response(content=csv, media_type="text/csv")
+
+from fastapi.responses import Response
+
+# ═══════════ Health ════════════════════════════════════════
+@app.get("/api/health")
+def health():
+    conn = get_db()
+    m = conn.execute("SELECT COUNT(*) FROM monitors").fetchone()[0]
+    c = conn.execute("SELECT COUNT(*) FROM checks").fetchone()[0]
+    u = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+    conn.close()
+    return {"status": "ok", "version": "2.0.0", "users": u, "monitors": m, "checks": c}
+
+# ═══════════ Security Headers Middleware ══════════════════
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+    response.headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'"
+    response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    return response
 
 if __name__ == "__main__":
     import uvicorn
