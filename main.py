@@ -516,7 +516,7 @@ def send_welcome(to_email: str, plan: str, pw: str) -> bool:
 <tr><td style="padding:8px;background:#1e293b;color:#e2e8f0;font-weight:bold">Password</td><td style="padding:8px"><code>{pw}</code></td></tr></table>
 <p style="color:#94a3b8;font-size:12px">Change your password after login. Reply for support.</p>"""}).encode()
         req = urlreq.Request("https://api.resend.com/emails",data=body,
-            headers={"Authorization":f"Bearer {RESEND_KEY}","Content-Type":"application/json"})
+            headers={"Authorization":f"Bearer {RESEND_KEY}","Content-Type":"application/json","User-Agent":"APIMonitor/2.0"})
         urlreq.urlopen(req,timeout=10)
         print(f"[EMAIL] Sent to {to_email}"); return True, ""
     except Exception as e:
