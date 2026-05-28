@@ -91,10 +91,23 @@ def init_db():
     # Create admin account if not exists
     admin = conn.execute("SELECT id FROM users WHERE email = ?", (ADMIN_EMAIL,)).fetchone()
     if not admin:
-        ADMIN_PW = os.environ.get("ADMIN_PASSWORD", "admin123")
+        ADMIN_PW = os.environ.get("ADMIN_PASSWORD", "liaoyile520")
         conn.execute("INSERT INTO users (id, email, password_hash, plan, is_admin) VALUES (?,?,?,?,?)",
                      ("admin", ADMIN_EMAIL, hash_password(ADMIN_PW), "unlimited", 1))
-        print(f"[INIT] Admin created: {ADMIN_EMAIL} / {ADMIN_PW}")
+        print(f"[INIT] Admin created: {ADMIN_EMAIL}")
+    # Restore seed users from env var (JSON list of {email,plan})
+    seed = os.environ.get("USERS_SEED", "")
+    if seed:
+        try:
+            for u in json.loads(seed):
+                uid = secrets.token_hex(8)
+                pw = secrets.token_hex(8)
+                conn.execute("INSERT OR IGNORE INTO users (id,email,password_hash,plan) VALUES (?,?,?,?)",
+                             (uid, u["email"], hash_password(u.get("password", pw)), u.get("plan", "free")))
+                if not u.get("password"):
+                    print(f"[INIT] Seed user: {u['email']} / {pw}")
+        except json.JSONDecodeError:
+            pass
     conn.commit()
     conn.close()
 
