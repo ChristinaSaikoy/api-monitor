@@ -84,6 +84,7 @@ select{background:rgba(0,0,0,0.4);border:1px solid var(--border);border-radius:2
 <div class="header-right">
 <span id="userInfo">SYS::OFFLINE</span>
 <button class="btn btn-ghost btn-sm" onclick="showLogin()" id="loginBtn">AUTH</button>
+<button class="btn btn-ghost btn-sm" onclick="showPwChange()" id="pwdBtn" style="display:none">PASSWD</button>
 <button class="btn btn-ghost btn-sm" onclick="logout()" id="logoutBtn" style="display:none">EXIT</button>
 </div>
 </div>
@@ -96,6 +97,19 @@ select{background:rgba(0,0,0,0.4);border:1px solid var(--border);border-radius:2
 <div id="loginError">ACCESS DENIED</div>
 <button class="btn btn-primary" onclick="doLogin()">CONNECT</button>
 <button class="btn btn-ghost" style="margin-top:6px" onclick="hideLogin()">CANCEL</button>
+</div>
+</div>
+
+<div class="modal-overlay" id="pwdBox">
+<div class="modal">
+<h2>// CHANGE_PASSPHRASE</h2>
+<input id="oldPass" placeholder="CURRENT PASSPHRASE" type="password">
+<input id="newPass" placeholder="NEW PASSPHRASE" type="password">
+<input id="newPass2" placeholder="CONFIRM NEW" type="password">
+<div id="pwdError" style="color:var(--red);font-size:.8rem;display:none;font-family:'Share Tech Mono',monospace;margin-top:4px"></div>
+<div id="pwdOk" style="color:var(--green);font-size:.8rem;display:none;font-family:'Share Tech Mono',monospace;margin-top:4px"></div>
+<button class="btn btn-primary" onclick="doPwChange()">UPDATE</button>
+<button class="btn btn-ghost" style="margin-top:6px" onclick="hidePwChange()">CANCEL</button>
 </div>
 </div>
 
@@ -152,6 +166,7 @@ var me=await r.json();
 document.getElementById('userInfo').textContent='SYS::'+me.email.split('@')[0].toUpperCase()+' ['+me.plan.toUpperCase()+']';
 document.getElementById('planInfo').textContent='SLOTS: '+me.monitors_used+'/'+me.monitors_limit;
 document.getElementById('logoutBtn').style.display='inline-block';
+document.getElementById('pwdBtn').style.display='inline-block';
 document.getElementById('loginBtn').style.display='none';
 if(me.is_admin) document.getElementById('adminCard').style.display='block';
 var sr=await fetch('/api/stats',{headers:H()});
@@ -190,6 +205,14 @@ document.getElementById('monUrl').value='';document.getElementById('monName').va
 async function delMon(id){if(confirm('CONFIRM DELETE?')){await fetch('/api/monitors/'+id,{method:'DELETE',headers:H()});loadStats();}}
 function showLogin(){document.getElementById('authBox').style.display='flex';}
 function hideLogin(){document.getElementById('authBox').style.display='none';}
+function showPwChange(){document.getElementById('pwdBox').style.display='flex';}
+function hidePwChange(){document.getElementById('pwdBox').style.display='none';document.getElementById('pwdError').style.display='none';document.getElementById('pwdOk').style.display='none';}
+async function doPwChange(){
+var op=document.getElementById('oldPass').value;var np=document.getElementById('newPass').value;var np2=document.getElementById('newPass2').value;
+if(np!==np2){document.getElementById('pwdError').style.display='block';document.getElementById('pwdError').textContent='PASSPHRASES DO NOT MATCH';return}
+var r=await fetch('/api/auth/password',{method:'PUT',headers:H(),body:JSON.stringify({old_password:op,new_password:np})});
+if(r.ok){document.getElementById('pwdOk').style.display='block';document.getElementById('pwdOk').textContent='PASSPHRASE UPDATED';document.getElementById('pwdError').style.display='none';setTimeout(hidePwChange,1500)}
+else{var d=await r.json();document.getElementById('pwdError').style.display='block';document.getElementById('pwdError').textContent=d.detail||'FAILED';document.getElementById('pwdOk').style.display='none'}}
 async function doLogin(){var email=document.getElementById('loginEmail').value;var pw=document.getElementById('loginPass').value;
 var r=await fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:email,password:pw})});
 var d=await r.json();
@@ -202,6 +225,7 @@ if(d.temp_password) alert('CREATED! PASSKEY: '+d.temp_password);else alert(JSON.
 async function adminDeleteUser(id){if(confirm('CONFIRM DELETE?')){await fetch('/api/admin/users/'+id,{method:'DELETE',headers:H()});loadAdmin();}}
 function updateUI(){if(TOKEN)loadStats();else{
 document.getElementById('monCount').textContent='--';document.getElementById('logoutBtn').style.display='none';
+document.getElementById('pwdBtn').style.display='none';
 document.getElementById('loginBtn').style.display='inline-block';document.getElementById('adminCard').style.display='none';
 document.getElementById('monitors').innerHTML='';document.getElementById('userInfo').textContent='SYS::OFFLINE';}}
 setInterval(function(){if(TOKEN)loadStats();if(window._mid)loadChecks();},15000);updateUI();
