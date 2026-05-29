@@ -125,8 +125,9 @@ def get_db():
     return conn
 
 def init_db():
-    # Restore from Turso if local DB is fresh
-    turso_restore()
+    # Restore from Turso only if local DB doesn't exist (fresh deploy)
+    if not os.path.exists(DB):
+        turso_restore()
     conn = get_db()
     conn.executescript("""
         CREATE TABLE IF NOT EXISTS users (
@@ -366,8 +367,9 @@ async def lifespan(app: FastAPI):
     task1 = asyncio.create_task(monitor_loop())
     task2 = asyncio.create_task(cleanup_old_checks())
     task3 = asyncio.create_task(turso_backup_loop())
-    turso_snapshot()  # immediate first backup
+    # No immediate snapshot on startup — would overwrite good Turso data with fresh empty DB
     yield
+    turso_snapshot()  # backup on shutdown instead
     task1.cancel(); task2.cancel(); task3.cancel()
 
 app = FastAPI(title="API Monitor", version="2.1.0", lifespan=lifespan)
