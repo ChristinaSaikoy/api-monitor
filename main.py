@@ -112,8 +112,8 @@ import base64
 
 PLANS = {
     "free":     {"monitors": 3,  "interval": 60,  "history_days": 7,   "export": False, "price": 0},
-    "pro":      {"monitors": 50, "interval": 60,  "history_days": 30,  "export": True,  "price": 9},
-    "unlimited":{"monitors": 99999, "interval": 30, "history_days": 365, "export": True,  "price": 29},
+    "pro":      {"monitors": 50, "interval": 60,  "history_days": 30,  "export": True,  "price": 1},
+    "unlimited":{"monitors": 99999, "interval": 30, "history_days": 365, "export": True,  "price": 3},
 }
 
 # ═══════════ DB Layer ═════════════════════════════════════════
