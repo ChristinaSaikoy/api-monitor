@@ -193,7 +193,7 @@ def init_db():
     # Create admin account if not exists
     admin = conn.execute("SELECT id FROM users WHERE email = ?", (ADMIN_EMAIL,)).fetchone()
     if not admin:
-        ADMIN_PW = os.environ.get("ADMIN_PASSWORD", "liaoyile520")
+        ADMIN_PW = os.environ.get("ADMIN_PASSWORD", secrets.token_hex(8))
         conn.execute("INSERT INTO users (id, email, password_hash, plan, is_admin) VALUES (?,?,?,?,?)",
                      ("admin", ADMIN_EMAIL, hash_password(ADMIN_PW), "unlimited", 1))
         print(f"[INIT] Admin created: {ADMIN_EMAIL}")
