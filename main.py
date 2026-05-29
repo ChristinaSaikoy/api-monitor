@@ -111,9 +111,9 @@ def b64_decode(s: str) -> bytes:
 import base64
 
 PLANS = {
-    "free":     {"monitors": 3,  "interval": 60,  "history_days": 7,   "export": False, "price_monthly": 0, "price_yearly": 0},
-    "pro":      {"monitors": 50, "interval": 60,  "history_days": 30,  "export": True,  "price_monthly": 3, "price_yearly": 30},
-    "unlimited":{"monitors": 99999, "interval": 30, "history_days": 365, "export": True,  "price_monthly": 10, "price_yearly": 100},
+    "free":     {"monitors": 3,  "interval": 60,  "history_days": 7,   "export": False, "price": 0},
+    "pro":      {"monitors": 50, "interval": 60,  "history_days": 30,  "export": True,  "price": 9},
+    "unlimited":{"monitors": 99999, "interval": 30, "history_days": 365, "export": True,  "price": 29},
 }
 
 # ═══════════ DB Layer ═════════════════════════════════════════
@@ -454,7 +454,7 @@ async def me(user: dict = Depends(get_current_user)):
     conn.close()
     return {**user, "monitors_used": m_count, "monitors_limit": plan_cfg["monitors"],
             "checks_interval": plan_cfg["interval"], "history_days": plan_cfg["history_days"],
-            "pricing": {"monthly": plan_cfg["price_monthly"], "yearly": plan_cfg["price_yearly"]}}
+            "pricing": {"one_time": plan_cfg["price"]}}
 
 # ═══════════ Monitor Endpoints (per-user) ══════════════════
 @app.get("/api/monitors")
