@@ -315,7 +315,7 @@ async def cleanup_old_checks():
 
 async def turso_backup_loop():
     while True:
-        await asyncio.sleep(300)  # every 5 minutes
+        await asyncio.sleep(10)  # every 10 seconds — minimize data loss on redeploy
         turso_snapshot()
 
 # ═══════════ Monitor Engine ══════════════════════════════════
